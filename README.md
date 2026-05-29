@@ -75,14 +75,16 @@ npm run typeorm:migration:run
 ## Compile and run the project
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
+# development (watch)
 $ npm run start:dev
 
-# production mode
+# run compiled app (after `npm run build`; used by Render / `npm start`)
+$ npm run start
+# or
 $ npm run start:prod
+
+# Nest CLI compile + run (no watch), if you need it
+$ npm run start:nest
 ```
 
 ## Run tests

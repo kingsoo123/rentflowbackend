@@ -60,6 +60,18 @@ function normalizeAndAssertPostgresUrl(raw: string): string {
   return s;
 }
 
+function sanitizeEmptyPort(config: Record<string, unknown>): void {
+  const raw = config.PORT ?? process.env.PORT;
+  if (raw === undefined || raw === null) {
+    return;
+  }
+  if (String(raw).trim() !== '') {
+    return;
+  }
+  delete config.PORT;
+  delete process.env.PORT;
+}
+
 /**
  * Environment variables loaded by @nestjs/config before the app boots.
  * Add fields here as you introduce new configuration.
@@ -116,6 +128,10 @@ export function validateEnv(
   if (process.env.DATABASE_URL !== undefined) {
     process.env.DATABASE_URL = normalized;
   }
+
+  // @IsOptional skips undefined/null only — an empty PORT env var (common in dashboards)
+  // still runs @IsPort and fails. Render injects PORT at runtime; omit blanks so defaults apply.
+  sanitizeEmptyPort(config as Record<string, unknown>);
 
   const validated = plainToInstance(EnvironmentVariables, config, {
     enableImplicitConversion: true,

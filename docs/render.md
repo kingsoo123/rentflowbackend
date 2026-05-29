@@ -8,7 +8,9 @@ Use a **Web Service** pointed at this package (in a monorepo, set **Root Directo
 |--------|--------|
 | **Environment** | `Node` |
 | **Build command** | `npm ci && npm run build` (or `npm install && npm run build`) |
-| **Start command** | `npm run start:prod` |
+| **Start command** | `npm start` or `npm run start:prod` (both run `node dist/main`) |
+
+Do **not** leave **`PORT`** set to an empty string in the Render dashboard — that used to fail validation; the app now strips blank `PORT`, but omit the variable entirely and let Render inject it.
 
 This repo keeps **build-time tools** (`@nestjs/cli`, `typescript`, `ts-loader`, `dotenv`) in **`dependencies`** so a normal install under **`NODE_ENV=production`** still runs **`nest build`**. You should no longer see **exit 127** (`nest: not found`) from omitted devDependencies.
 
