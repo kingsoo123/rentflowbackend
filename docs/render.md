@@ -7,12 +7,14 @@ Use a **Web Service** pointed at this package (in a monorepo, set **Root Directo
 | Field | Value |
 |--------|--------|
 | **Environment** | `Node` |
-| **Build command** | `npm ci --include=dev && npm run build` (or `npm install --include=dev && npm run build`) |
+| **Build command** | `npm ci --include=dev && npm run build` |
 | **Start command** | `npm run start:prod` |
 
-If **`NODE_ENV=production`** is set on the service (recommended for runtime), `npm install` / `npm ci` **omit `devDependencies`** by default, so **`nest` is missing** and `npm run build` fails. **`--include=dev`** forces dev tools (e.g. `@nestjs/cli`) to install for the build only.
+Use **`npm install --include=dev && npm run build`** instead of `npm ci` if you do not commit `package-lock.json` to the repo Render builds from.
 
-Set **Node version** to **20** or **22** (Render: Environment → `NODE_VERSION` or add `engines` in `package.json`).
+When **`NODE_ENV=production`** is set on the service (recommended for runtime), plain **`npm install` / `npm ci` omit `devDependencies`**, so the **`nest`** binary from **`@nestjs/cli`** is missing and **`npm run build`** fails. Passing **`--include=dev`** installs devDependencies for the build step only; the production start command does not need the CLI.
+
+**Node.js:** this package declares **`engines.node`** (`>=20 <25` in `package.json`). Render will pick a compatible version from that range. You can still pin a patch release with the **`NODE_VERSION`** env var (see [Render: Node version](https://render.com/docs/node-version)).
 
 ## Database migrations
 
