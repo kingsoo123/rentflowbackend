@@ -7,8 +7,10 @@ Use a **Web Service** pointed at this package (in a monorepo, set **Root Directo
 | Field | Value |
 |--------|--------|
 | **Environment** | `Node` |
-| **Build command** | `npm ci && npm run build` |
+| **Build command** | `npm ci --include=dev && npm run build` (or `npm install --include=dev && npm run build`) |
 | **Start command** | `npm run start:prod` |
+
+If **`NODE_ENV=production`** is set on the service (recommended for runtime), `npm install` / `npm ci` **omit `devDependencies`** by default, so **`nest` is missing** and `npm run build` fails. **`--include=dev`** forces dev tools (e.g. `@nestjs/cli`) to install for the build only.
 
 Set **Node version** to **20** or **22** (Render: Environment → `NODE_VERSION` or add `engines` in `package.json`).
 
