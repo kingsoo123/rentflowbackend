@@ -7,6 +7,7 @@ import {
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { User } from '../users/user.entity';
+import { PropertyBroadcast } from './property-broadcast.entity';
 
 @Entity('tenant_notifications')
 export class TenantNotification {
@@ -48,4 +49,12 @@ export class TenantNotification {
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
+
+  /** Set when this row was created from a portfolio-wide manager broadcast. */
+  @Column({ name: 'broadcast_id', type: 'uuid', nullable: true })
+  broadcastId: string | null;
+
+  @ManyToOne(() => PropertyBroadcast, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'broadcast_id' })
+  broadcast: PropertyBroadcast | null;
 }

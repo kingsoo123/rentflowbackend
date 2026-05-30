@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -8,6 +9,7 @@ import { User } from '../users/user.entity';
 import { UserRole } from '../users/user-role.enum';
 import { TenantProfile } from '../users/tenant-profile.entity';
 import { TenantNotification } from './tenant-notification.entity';
+import { PropertyBroadcast } from './property-broadcast.entity';
 import { RentRenewalMailService } from '../email/rent-renewal-mail.service';
 import { TenantNotificationsRealtimeService } from './tenant-notifications-realtime.service';
 
@@ -38,6 +40,16 @@ export type RentRenewalFailed = {
   email: string;
   reason: string;
 };
+
+export type PropertyBroadcastSummary = {
+  id: string;
+  headline: string;
+  body: string;
+  tenantCount: number;
+  createdAt: Date;
+};
+
+const MAX_PROPERTY_BROADCAST_TENANTS = 500;
 
 function maintenanceStatusLabel(status: string): string {
   const s = status.toLowerCase();
@@ -76,6 +88,8 @@ export class TenantNotificationsService {
   constructor(
     @InjectRepository(TenantNotification)
     private readonly notificationsRepository: Repository<TenantNotification>,
+    @InjectRepository(PropertyBroadcast)
+    private readonly propertyBroadcastRepository: Repository<PropertyBroadcast>,
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
     @InjectRepository(TenantProfile)
@@ -234,6 +248,98 @@ export class TenantNotificationsService {
       id: saved.id,
     });
     return { id: saved.id };
+  }
+
+  /**
+   * One portfolio-wide notice: stored once per tenant (Alerts) and once on the
+   * manager’s broadcast list for audit/history.
+   */
+  async broadcastPropertyNoticeToAllTenants(params: {
+    managerId: string;
+    headline: string;
+    body: string;
+  }): Promise<{
+    broadcastId: string;
+    tenantCount: number;
+    createdAt: Date;
+  }> {
+    const tenants = await this.usersRepository.find({
+      where: { role: UserRole.TENANT },
+      select: ['id'],
+      order: { id: 'ASC' },
+    });
+    if (tenants.length === 0) {
+      throw new BadRequestException(
+        'No tenant accounts exist yet. Add tenants before sending a portfolio notice.',
+      );
+    }
+    if (tenants.length > MAX_PROPERTY_BROADCAST_TENANTS) {
+      throw new BadRequestException(
+        `Too many tenant accounts (${tenants.length}) for one notice; max is ${MAX_PROPERTY_BROADCAST_TENANTS}.`,
+      );
+    }
+    const headline = params.headline.trim().slice(0, 280);
+    const body = params.body.trim();
+
+    const { broadcastId, createdAt } =
+      await this.notificationsRepository.manager.transaction(async (em) => {
+        const broadcastRepo = em.getRepository(PropertyBroadcast);
+        const notifRepo = em.getRepository(TenantNotification);
+
+        const broadcast = broadcastRepo.create({
+          managerId: params.managerId,
+          headline,
+          body,
+          tenantCount: tenants.length,
+        });
+        const savedBroadcast = await broadcastRepo.save(broadcast);
+
+        for (const t of tenants) {
+          const row = notifRepo.create({
+            tenantId: t.id,
+            kind: 'property_broadcast',
+            headline,
+            body,
+            isRead: false,
+            renewalMonthlyRentDisplay: null,
+            renewalEffectiveDate: null,
+            broadcastId: savedBroadcast.id,
+          });
+          await notifRepo.save(row);
+        }
+
+        return {
+          broadcastId: savedBroadcast.id,
+          createdAt: savedBroadcast.createdAt,
+        };
+      });
+
+    for (const t of tenants) {
+      this.tenantNotificationsRealtime.notifyTenant(t.id, {});
+    }
+
+    return {
+      broadcastId,
+      tenantCount: tenants.length,
+      createdAt,
+    };
+  }
+
+  async listPropertyBroadcastsForManager(
+    managerId: string,
+  ): Promise<PropertyBroadcastSummary[]> {
+    const rows = await this.propertyBroadcastRepository.find({
+      where: { managerId },
+      order: { createdAt: 'DESC' },
+      take: 50,
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      headline: r.headline,
+      body: r.body,
+      tenantCount: r.tenantCount,
+      createdAt: r.createdAt,
+    }));
   }
 
   async listForTenant(tenantId: string): Promise<TenantNotificationRow[]> {

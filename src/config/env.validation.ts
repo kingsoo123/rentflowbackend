@@ -60,16 +60,33 @@ function normalizeAndAssertPostgresUrl(raw: string): string {
   return s;
 }
 
-function sanitizeEmptyPort(config: Record<string, unknown>): void {
+/**
+ * `.env` must use literal values (e.g. PORT=3001), not JS expressions.
+ * Strips blank PORT; normalizes numeric strings; drops invalid values so defaults apply.
+ */
+function sanitizePort(config: Record<string, unknown>): void {
   const raw = config.PORT ?? process.env.PORT;
   if (raw === undefined || raw === null) {
     return;
   }
-  if (String(raw).trim() !== '') {
+  const s = String(raw).trim();
+  if (s === '') {
+    delete config.PORT;
+    delete process.env.PORT;
     return;
   }
-  delete config.PORT;
-  delete process.env.PORT;
+  if (!/^\d{1,5}$/.test(s)) {
+    throw new Error(
+      `PORT must be a number 1–65535 (not "${s.slice(0, 120)}"). In .env use a literal like PORT=3001 — shell env files cannot run JavaScript.`,
+    );
+  }
+  const n = parseInt(s, 10);
+  if (n < 1 || n > 65535) {
+    throw new Error(`PORT must be between 1 and 65535 (got ${n}).`);
+  }
+  const normalized = String(n);
+  config.PORT = normalized;
+  process.env.PORT = normalized;
 }
 
 /**
@@ -129,9 +146,7 @@ export function validateEnv(
     process.env.DATABASE_URL = normalized;
   }
 
-  // @IsOptional skips undefined/null only — an empty PORT env var (common in dashboards)
-  // still runs @IsPort and fails. Render injects PORT at runtime; omit blanks so defaults apply.
-  sanitizeEmptyPort(config as Record<string, unknown>);
+  sanitizePort(config as Record<string, unknown>);
 
   const validated = plainToInstance(EnvironmentVariables, config, {
     enableImplicitConversion: true,

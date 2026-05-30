@@ -7,6 +7,7 @@ import { RentRenewalMailService } from '../email/rent-renewal-mail.service';
 import { User } from '../users/user.entity';
 import { TenantProfile } from '../users/tenant-profile.entity';
 import { ManagersTenantNotificationsController } from './managers-tenant-notifications.controller';
+import { PropertyBroadcast } from './property-broadcast.entity';
 import { TenantNotification } from './tenant-notification.entity';
 import { TenantNotificationsController } from './tenant-notifications.controller';
 import { TenantNotificationsRealtimeGateway } from './tenant-notifications-realtime.gateway';
@@ -18,7 +19,12 @@ import { TenantsUpcomingRentController } from './tenants-upcoming-rent.controlle
 @Module({
   imports: [
     AuthModule,
-    TypeOrmModule.forFeature([TenantNotification, User, TenantProfile]),
+    TypeOrmModule.forFeature([
+      TenantNotification,
+      PropertyBroadcast,
+      User,
+      TenantProfile,
+    ]),
   ],
   controllers: [
     ManagersTenantNotificationsController,

@@ -2,20 +2,27 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Get,
   Post,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import type { JwtAccessPayload } from '../auth/types/jwt-payload';
 import { UserRole } from '../users/user-role.enum';
 import {
   mergeRentRenewalRecipientEmails,
   SendRentRenewalNoticeDto,
 } from './dto/send-rent-renewal-notice.dto';
+import { SendPropertyBroadcastDto } from './dto/send-property-broadcast.dto';
 import { TenantNotificationsService } from './tenant-notifications.service';
 
 const MAX_RENT_RENEWAL_RECIPIENTS = 25;
+
+type AuthedRequest = Request & { user: JwtAccessPayload };
 
 @Controller('managers/tenant-notifications')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -23,6 +30,28 @@ export class ManagersTenantNotificationsController {
   constructor(
     private readonly tenantNotificationsService: TenantNotificationsService,
   ) {}
+
+  /** Portfolio-wide in-app notice (one row per tenant + manager history). */
+  @Get('property-broadcasts')
+  @Roles(UserRole.PROPERTY_MANAGER)
+  listPropertyBroadcasts(@Req() req: AuthedRequest) {
+    return this.tenantNotificationsService.listPropertyBroadcastsForManager(
+      req.user.sub,
+    );
+  }
+
+  @Post('property-broadcast')
+  @Roles(UserRole.PROPERTY_MANAGER)
+  sendPropertyBroadcast(
+    @Req() req: AuthedRequest,
+    @Body() dto: SendPropertyBroadcastDto,
+  ) {
+    return this.tenantNotificationsService.broadcastPropertyNoticeToAllTenants({
+      managerId: req.user.sub,
+      headline: dto.headline,
+      body: dto.body,
+    });
+  }
 
   @Post('rent-renewal')
   @Roles(UserRole.PROPERTY_MANAGER)
