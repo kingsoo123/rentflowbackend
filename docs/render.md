@@ -20,10 +20,15 @@ If you prefer not to ship the CLI in `dependencies`, use instead: **`npm ci --in
 
 ## Database migrations
 
-Run migrations once per environment (after the first deploy or when new migrations ship):
+**Property manager signup** (`POST /api/auth/signup` with `role: property_manager`) creates rows in the **`properties`** table. If you see **`503` / “Database is missing the properties table”**, migrations have not been applied to the database this API uses — run them below.
 
-- **Option A:** Render **Shell** for the service (from repo root use `cd real_estate_backend && …`): `npm run typeorm:migration:run`
-- **Option B:** Temporary **post-deploy** script or one-off **Background Worker** with the same env vars and `npm run typeorm:migration:run`
+After the first deploy or whenever new migrations ship:
+
+- **Option A (recommended in Blueprint):** This repo’s root `render.yaml` sets **`preDeployCommand: npm run typeorm:migration:run`** on the backend service so each deploy applies pending migrations before the new version goes live. If your Render plan or service type does not support pre-deploy, use Option B.
+- **Option B:** Render **Shell** for the Web Service (working directory is usually **`real_estate_backend`** when `rootDir` is set):  
+  `npm run typeorm:migration:run`  
+  If Shell opens at repo root: `cd real_estate_backend && npm run typeorm:migration:run`
+- **Option C:** One-off **Background Worker** or script with the same **`DATABASE_URL`** as the API.
 
 Do **not** set `TYPEORM_SYNCHRONIZE=true` in production unless you fully accept schema drift risks.
 

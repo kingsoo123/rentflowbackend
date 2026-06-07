@@ -9,14 +9,14 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { InjectRepository } from '@nestjs/typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
-import { QueryFailedError } from 'typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, EntityManager, QueryFailedError, Repository } from 'typeorm';
 import { LoginDto } from './dto/login.dto';
 import { SignupDto } from './dto/signup.dto';
 import type { CreateTenantDto } from './dto/create-tenant.dto';
 import type { JwtAccessPayload } from './types/jwt-payload';
+import { Property } from '../properties/property.entity';
 import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
 import { UserRole } from '../users/user-role.enum';
@@ -58,6 +58,8 @@ export class AuthService {
     private readonly usersRepository: Repository<User>,
     @InjectRepository(TenantProfile)
     private readonly tenantProfileRepository: Repository<TenantProfile>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
     private readonly jwtService: JwtService,
   ) {}
 
@@ -111,12 +113,62 @@ export class AuthService {
       throw new BadRequestException('Passwords do not match');
     }
 
-    return this.persistNewUser({
-      email: dto.email,
-      fullName: dto.name.trim(),
-      passwordPlain: dto.password,
-      role: dto.role,
-      logContext: 'signup',
+    const propertyNameList =
+      dto.role === UserRole.PROPERTY_MANAGER
+        ? this.parseCommaSeparatedPropertyNames(dto.propertyNames)
+        : [];
+
+    if (dto.role === UserRole.PROPERTY_MANAGER && propertyNameList.length === 0) {
+      throw new BadRequestException(
+        'Enter at least one property name. Separate multiple properties with commas.',
+      );
+    }
+
+    return this.dataSource.transaction(async (em) => {
+      const user = await this.persistNewUserWithManager(em, {
+        email: dto.email,
+        fullName: dto.name.trim(),
+        passwordPlain: dto.password,
+        role: dto.role,
+        logContext: 'signup',
+      });
+
+      if (propertyNameList.length > 0) {
+        const propRepo = em.getRepository(Property);
+        const rows = propertyNameList.map((name) =>
+          propRepo.create({
+            managerUserId: user.id,
+            name,
+          }),
+        );
+        try {
+          await propRepo.save(rows);
+        } catch (err) {
+          if (err instanceof QueryFailedError) {
+            const code = pgErrorCode(err);
+            this.logger.warn(
+              `signup properties DB error [${code ?? 'unknown'}]: ${err.message}`,
+            );
+            if (code === '23505') {
+              throw new ConflictException(
+                'A property with one of these names already exists for this account.',
+              );
+            }
+            if (
+              code === '42P01' ||
+              (err.message.includes('relation') &&
+                err.message.includes('does not exist'))
+            ) {
+              throw new ServiceUnavailableException(
+                'Database is missing the properties table. From real_estate_backend run: npm run typeorm:migration:run',
+              );
+            }
+          }
+          throw err;
+        }
+      }
+
+      return user;
     });
   }
 
@@ -247,8 +299,53 @@ export class AuthService {
     role: UserRole;
     logContext: string;
   }): Promise<SignupResult> {
+    return this.persistNewUserWithManager(this.usersRepository.manager, params);
+  }
+
+  /**
+   * Splits comma-separated property names, trims, drops empties, dedupes by
+   * case-insensitive key, enforces max length per name.
+   */
+  private parseCommaSeparatedPropertyNames(raw: string | undefined): string[] {
+    if (raw === undefined || raw === null) {
+      return [];
+    }
+    const s = typeof raw === 'string' ? raw.trim() : String(raw).trim();
+    if (!s) {
+      return [];
+    }
+    const seen = new Map<string, string>();
+    for (const part of s.split(',')) {
+      const t = part.trim();
+      if (!t) {
+        continue;
+      }
+      if (t.length > 200) {
+        throw new BadRequestException(
+          `Each property name must be at most 200 characters (check "${t.slice(0, 48)}${t.length > 48 ? '…' : ''}").`,
+        );
+      }
+      const key = t.toLowerCase();
+      if (!seen.has(key)) {
+        seen.set(key, t);
+      }
+    }
+    return [...seen.values()];
+  }
+
+  private async persistNewUserWithManager(
+    em: EntityManager,
+    params: {
+      email: string;
+      fullName: string;
+      passwordPlain: string;
+      role: UserRole;
+      logContext: string;
+    },
+  ): Promise<SignupResult> {
+    const usersRepository = em.getRepository(User);
     try {
-      const existing = await this.usersRepository.exist({
+      const existing = await usersRepository.exist({
         where: { email: params.email },
       });
       if (existing) {
@@ -258,13 +355,13 @@ export class AuthService {
       const saltRounds = 12;
       const passwordHash = await bcrypt.hash(params.passwordPlain, saltRounds);
 
-      const user = this.usersRepository.create({
+      const user = usersRepository.create({
         email: params.email,
         passwordHash,
         fullName: params.fullName,
         role: params.role,
       });
-      await this.usersRepository.save(user);
+      await usersRepository.save(user);
 
       return {
         id: user.id,

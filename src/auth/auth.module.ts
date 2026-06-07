@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { Property } from '../properties/property.entity';
 import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
 import { AuthController } from './auth.controller';
@@ -9,7 +10,7 @@ import { AuthService } from './auth.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, TenantProfile]),
+    TypeOrmModule.forFeature([User, TenantProfile, Property]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

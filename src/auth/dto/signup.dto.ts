@@ -7,6 +7,7 @@ import {
   MinLength,
   IsBoolean,
   Equals,
+  IsOptional,
 } from 'class-validator';
 import { UserRole } from '../../users/user-role.enum';
 
@@ -46,4 +47,17 @@ export class SignupDto {
     message: 'You must accept the terms and privacy policy',
   })
   terms: boolean;
+
+  /**
+   * Property managers: comma-separated property names (each trimmed; duplicates
+   * after case-insensitive normalization are ignored). Required for `property_manager`
+   * at signup — validated in `AuthService.signup`.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(8000)
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
+  propertyNames?: string;
 }

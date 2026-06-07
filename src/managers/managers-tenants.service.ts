@@ -1,10 +1,14 @@
 import {
+  BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ListManagersTenantsQueryDto } from './dto/list-managers-tenants.query.dto';
+import type { PatchTenantDto } from './dto/patch-tenant.dto';
+import { Property } from '../properties/property.entity';
 import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
 import { UserRole } from '../users/user-role.enum';
@@ -55,6 +59,32 @@ function escapeIlike(term: string): string {
   return term.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
 }
 
+function mergeProfilePatch(
+  existing: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...existing };
+  for (const [key, rawVal] of Object.entries(patch)) {
+    if (rawVal === null || rawVal === undefined) {
+      delete merged[key];
+      continue;
+    }
+    if (typeof rawVal === 'string') {
+      const t = rawVal.trim();
+      if (t === '') {
+        delete merged[key];
+      } else {
+        merged[key] = t;
+      }
+      continue;
+    }
+    if (typeof rawVal === 'number' || typeof rawVal === 'boolean') {
+      merged[key] = rawVal;
+    }
+  }
+  return merged;
+}
+
 @Injectable()
 export class ManagersTenantsService {
   constructor(
@@ -62,7 +92,68 @@ export class ManagersTenantsService {
     private readonly usersRepository: Repository<User>,
     @InjectRepository(TenantProfile)
     private readonly tenantProfileRepository: Repository<TenantProfile>,
+    @InjectRepository(Property)
+    private readonly propertyRepository: Repository<Property>,
   ) {}
+
+  /**
+   * Ensures `profile.propertyAssigned` is non-empty and matches a `properties` row
+   * for this manager (case-insensitive, trimmed).
+   */
+  async validatePropertyAssignedForManager(
+    managerUserId: string,
+    propertyAssignedRaw: string,
+  ): Promise<void> {
+    const normalized = propertyAssignedRaw.trim().toLowerCase();
+    if (normalized.length === 0) {
+      throw new BadRequestException(
+        'Each tenant must be assigned to a property. Set propertyAssigned to one of the properties on your portfolio.',
+      );
+    }
+    const count = await this.propertyRepository
+      .createQueryBuilder('p')
+      .where('p.managerUserId = :mid', { mid: managerUserId })
+      .andWhere('LOWER(TRIM(p.name)) = :n', { n: normalized })
+      .getCount();
+    if (count === 0) {
+      throw new BadRequestException(
+        'propertyAssigned must match a property name in your portfolio (same name as when you registered as a manager; case and surrounding spaces are ignored).',
+      );
+    }
+  }
+
+  /** Used before `POST /api/managers/tenants` so new tenants are always tied to a managed property. */
+  async assertCreateTenantProfileAllowedForManager(
+    managerUserId: string,
+    profile: Record<string, unknown> | undefined,
+  ): Promise<void> {
+    const raw = profile?.['propertyAssigned'];
+    const s = typeof raw === 'string' ? raw : '';
+    await this.validatePropertyAssignedForManager(managerUserId, s);
+  }
+
+  private async assertTenantBelongsToManager(
+    managerUserId: string,
+    tenantUserId: string,
+  ): Promise<void> {
+    const count = await this.usersRepository
+      .createQueryBuilder('u')
+      .leftJoin(TenantProfile, 'tp', 'tp.userId = u.id')
+      .where('u.id = :id', { id: tenantUserId })
+      .andWhere('u.role = :role', { role: UserRole.TENANT })
+      .andWhere(
+        `EXISTS (
+          SELECT 1 FROM properties p
+          WHERE p.manager_user_id = :managerUserId
+            AND LOWER(TRIM(COALESCE(tp.profile_data->>'propertyAssigned',''))) = LOWER(TRIM(p.name))
+        )`,
+        { managerUserId },
+      )
+      .getCount();
+    if (count === 0) {
+      throw new NotFoundException('Tenant not found');
+    }
+  }
 
   /**
    * Whether an account from self-service signup exists for this email as role `tenant`.
@@ -85,7 +176,10 @@ export class ManagersTenantsService {
     };
   }
 
-  async listTenants(query: ListManagersTenantsQueryDto): Promise<TenantsListResult> {
+  async listTenants(
+    managerUserId: string,
+    query: ListManagersTenantsQueryDto,
+  ): Promise<TenantsListResult> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 10;
     const search = query.search?.trim();
@@ -94,7 +188,15 @@ export class ManagersTenantsService {
     const qb = this.usersRepository
       .createQueryBuilder('u')
       .leftJoin(TenantProfile, 'tp', 'tp.userId = u.id')
-      .where('u.role = :role', { role: UserRole.TENANT });
+      .where('u.role = :role', { role: UserRole.TENANT })
+      .andWhere(
+        `EXISTS (
+          SELECT 1 FROM properties p
+          WHERE p.manager_user_id = :managerUserId
+            AND LOWER(TRIM(COALESCE(tp.profile_data->>'propertyAssigned',''))) = LOWER(TRIM(p.name))
+        )`,
+        { managerUserId },
+      );
 
     if (search) {
       const term = `%${escapeIlike(search)}%`;
@@ -161,13 +263,17 @@ export class ManagersTenantsService {
     };
   }
 
-  async getTenantDetail(id: string): Promise<TenantDetailResult> {
+  async getTenantDetail(
+    managerUserId: string,
+    id: string,
+  ): Promise<TenantDetailResult> {
     const user = await this.usersRepository.findOne({
       where: { id, role: UserRole.TENANT },
     });
     if (!user) {
       throw new NotFoundException('Tenant not found');
     }
+    await this.assertTenantBelongsToManager(managerUserId, id);
 
     const tp = await this.tenantProfileRepository.findOne({
       where: { userId: id },
@@ -188,5 +294,84 @@ export class ManagersTenantsService {
       createdAt: user.createdAt,
       profile,
     };
+  }
+
+  async updateTenant(
+    managerUserId: string,
+    id: string,
+    dto: PatchTenantDto,
+  ): Promise<TenantDetailResult> {
+    const hasAny =
+      dto.name !== undefined ||
+      dto.email !== undefined ||
+      dto.profile !== undefined;
+    if (!hasAny) {
+      throw new BadRequestException('No updates provided');
+    }
+
+    const user = await this.usersRepository.findOne({
+      where: { id, role: UserRole.TENANT },
+    });
+    if (!user) {
+      throw new NotFoundException('Tenant not found');
+    }
+    await this.assertTenantBelongsToManager(managerUserId, id);
+
+    if (dto.email !== undefined) {
+      const normalized = dto.email.trim().toLowerCase();
+      const other = await this.usersRepository.findOne({
+        where: { email: normalized },
+      });
+      if (other && other.id !== id) {
+        throw new ConflictException('An account with this email already exists');
+      }
+    }
+
+    const userPatch: Partial<{ fullName: string; email: string }> = {};
+    if (dto.name !== undefined) {
+      userPatch.fullName = dto.name.trim();
+    }
+    if (dto.email !== undefined) {
+      userPatch.email = dto.email.trim().toLowerCase();
+    }
+    if (Object.keys(userPatch).length > 0) {
+      await this.usersRepository.update({ id }, userPatch);
+    }
+
+    if (dto.profile !== undefined) {
+      const tp = await this.tenantProfileRepository.findOne({
+        where: { userId: id },
+      });
+      const existing =
+        tp?.profileData &&
+        typeof tp.profileData === 'object' &&
+        !Array.isArray(tp.profileData)
+          ? ({ ...(tp.profileData as Record<string, unknown>) } as Record<
+              string,
+              unknown
+            >)
+          : {};
+
+      const merged = mergeProfilePatch(existing, dto.profile);
+      const pa = merged['propertyAssigned'];
+      await this.validatePropertyAssignedForManager(
+        managerUserId,
+        typeof pa === 'string' ? pa : String(pa ?? ''),
+      );
+
+      if (tp) {
+        tp.profileData = merged;
+        await this.tenantProfileRepository.save(tp);
+      } else {
+        await this.tenantProfileRepository.save(
+          this.tenantProfileRepository.create({
+            userId: id,
+            profileData: merged,
+          }),
+        );
+      }
+    }
+
+    return this.getTenantDetail(managerUserId, id);
   }
 }
