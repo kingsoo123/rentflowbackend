@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
+import { ManagersTenantsService } from '../managers/managers-tenants.service';
 import { SubmitMaintenanceRequestDto } from './dto/submit-maintenance-request.dto';
 import { MaintenanceRequest } from './maintenance-request.entity';
 import { MaintenanceRequestStatus } from './maintenance-request-status.enum';
@@ -38,6 +39,7 @@ export class TenantMaintenanceRequestsService {
     @InjectRepository(MaintenanceRequest)
     private readonly maintenanceRepository: Repository<MaintenanceRequest>,
     private readonly maintenanceRealtime: MaintenanceRealtimeService,
+    private readonly managersTenantsService: ManagersTenantsService,
   ) {}
 
   /** All requests for this tenant, newest first (overview / track). */
@@ -95,7 +97,9 @@ export class TenantMaintenanceRequestsService {
         attachmentUrls: urls,
       });
       const saved = await this.maintenanceRepository.save(entity);
-      this.maintenanceRealtime.notifyMaintenanceCreated({ id: saved.id });
+      const managerUserIds =
+        await this.managersTenantsService.listManagerUserIdsForTenantOnRoster(tenantId);
+      this.maintenanceRealtime.notifyMaintenanceCreated({ id: saved.id }, managerUserIds);
       return {
         id: saved.id,
         title: saved.title,

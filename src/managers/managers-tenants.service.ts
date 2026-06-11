@@ -132,7 +132,27 @@ export class ManagersTenantsService {
     await this.validatePropertyAssignedForManager(managerUserId, s);
   }
 
-  private async assertTenantBelongsToManager(
+  /**
+   * Property manager user ids whose occupancy roster includes this tenant
+   * (same `propertyAssigned` ↔ `properties.name` rules as `GET /api/managers/tenants`).
+   */
+  async listManagerUserIdsForTenantOnRoster(tenantId: string): Promise<string[]> {
+    const rows = await this.propertyRepository
+      .createQueryBuilder('p')
+      .select('p.manager_user_id', 'managerUserId')
+      .distinct(true)
+      .innerJoin(TenantProfile, 'tp', 'tp.user_id = :tenantId', { tenantId })
+      .innerJoin(User, 'u', 'u.id = tp.user_id AND u.role = :role', {
+        role: UserRole.TENANT,
+      })
+      .where(
+        `LOWER(TRIM(COALESCE(tp.profile_data->>'propertyAssigned',''))) = LOWER(TRIM(p.name))`,
+      )
+      .getRawMany<{ managerUserId: string }>();
+    return rows.map((r) => r.managerUserId).filter(Boolean);
+  }
+
+  async assertTenantBelongsToManager(
     managerUserId: string,
     tenantUserId: string,
   ): Promise<void> {

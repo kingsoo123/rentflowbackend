@@ -33,5 +33,6 @@ import { ManagersTenantsService } from './managers-tenants.service';
     ManagersTenantsService,
     ManagersMaintenanceRequestsService,
   ],
+  exports: [ManagersTenantsService],
 })
 export class ManagersModule {}

@@ -40,6 +40,6 @@ import { TenantsUpcomingRentController } from './tenants-upcoming-rent.controlle
     JwtAuthGuard,
     RolesGuard,
   ],
-  exports: [TenantNotificationsService],
+  exports: [TenantNotificationsService, TenantNotificationsRealtimeService],
 })
 export class TenantNotificationsModule {}

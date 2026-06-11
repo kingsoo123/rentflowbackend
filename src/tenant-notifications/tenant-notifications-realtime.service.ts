@@ -15,6 +15,12 @@ export class TenantNotificationsRealtimeService {
     const room = tenantNotificationsRoom(tenantId);
     this.namespace?.to(room).emit('notifications:updated', payload);
   }
+
+  /** Tell tenant clients to refetch maintenance rows (e.g. manager status change). */
+  notifyMaintenanceUpdated(tenantId: string, payload: { id: string }): void {
+    const room = tenantNotificationsRoom(tenantId);
+    this.namespace?.to(room).emit('maintenance:updated', payload);
+  }
 }
 
 export function tenantNotificationsRoom(tenantId: string): string {

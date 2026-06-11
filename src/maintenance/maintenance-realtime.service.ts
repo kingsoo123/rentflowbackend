@@ -10,8 +10,19 @@ export class MaintenanceRealtimeService {
     this.namespace = namespace;
   }
 
-  /** Notify subscribed property managers that a tenant created a new request. */
-  notifyMaintenanceCreated(payload: { id: string }): void {
-    this.namespace?.to('managers-maintenance').emit('maintenance:created', payload);
+  /**
+   * Notify property managers on this tenant's occupancy roster that a new request exists.
+   * (Per-manager rooms — not every manager in the system.)
+   */
+  notifyMaintenanceCreated(
+    payload: { id: string },
+    managerUserIds: string[],
+  ): void {
+    if (!this.namespace || managerUserIds.length === 0) {
+      return;
+    }
+    for (const managerUserId of managerUserIds) {
+      this.namespace.to(`manager:${managerUserId}`).emit('maintenance:created', payload);
+    }
   }
 }

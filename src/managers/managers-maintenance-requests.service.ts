@@ -3,8 +3,13 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { MaintenanceRequest } from '../maintenance/maintenance-request.entity';
 import { MaintenanceRequestStatus } from '../maintenance/maintenance-request-status.enum';
+import { Property } from '../properties/property.entity';
+import { TenantNotificationsRealtimeService } from '../tenant-notifications/tenant-notifications-realtime.service';
 import { TenantNotificationsService } from '../tenant-notifications/tenant-notifications.service';
+import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
+import { UserRole } from '../users/user-role.enum';
+import { ManagersTenantsService } from './managers-tenants.service';
 
 export type ManagerMaintenanceRequestRow = {
   id: string;
@@ -28,15 +33,31 @@ export class ManagersMaintenanceRequestsService {
     private readonly maintenanceRepository: Repository<MaintenanceRequest>,
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
+    private readonly managersTenantsService: ManagersTenantsService,
     private readonly tenantNotificationsService: TenantNotificationsService,
+    private readonly tenantNotificationsRealtime: TenantNotificationsRealtimeService,
   ) {}
 
-  /** All tenant-submitted maintenance rows (newest first) for manager triage. */
-  async listAllForManagers(): Promise<ManagerMaintenanceRequestRow[]> {
-    const rows = await this.maintenanceRepository.find({
-      order: { createdAt: 'DESC' },
-      take: 100,
-    });
+  /**
+   * Tenant-submitted maintenance for this manager's occupancy roster only
+   * (same scope as `GET /api/managers/tenants`), newest first.
+   */
+  async listForManager(managerUserId: string): Promise<ManagerMaintenanceRequestRow[]> {
+    const rows = await this.maintenanceRepository
+      .createQueryBuilder('mr')
+      .innerJoin(User, 'u', 'u.id = mr.tenantId AND u.role = :role', {
+        role: UserRole.TENANT,
+      })
+      .leftJoin(TenantProfile, 'tp', 'tp.userId = u.id')
+      .innerJoin(
+        Property,
+        'p',
+        `p.managerUserId = :managerUserId AND LOWER(TRIM(COALESCE(tp.profile_data->>'propertyAssigned',''))) = LOWER(TRIM(p.name))`,
+        { managerUserId },
+      )
+      .orderBy('mr.createdAt', 'DESC')
+      .take(100)
+      .getMany();
     if (rows.length === 0) {
       return [];
     }
@@ -49,6 +70,7 @@ export class ManagersMaintenanceRequestsService {
   }
 
   async updateStatus(
+    managerUserId: string,
     id: string,
     status: MaintenanceRequestStatus,
   ): Promise<ManagerMaintenanceRequestRow> {
@@ -56,11 +78,18 @@ export class ManagersMaintenanceRequestsService {
     if (!row) {
       throw new NotFoundException('Maintenance request not found');
     }
+    await this.managersTenantsService.assertTenantBelongsToManager(
+      managerUserId,
+      row.tenantId,
+    );
     const previousStatus = row.status;
     row.status = status;
     const saved = await this.maintenanceRepository.save(row);
 
     if (previousStatus !== status) {
+      this.tenantNotificationsRealtime.notifyMaintenanceUpdated(saved.tenantId, {
+        id: saved.id,
+      });
       try {
         await this.tenantNotificationsService.createMaintenanceStatusNotification({
           tenantId: saved.tenantId,

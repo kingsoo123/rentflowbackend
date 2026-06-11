@@ -53,7 +53,7 @@ export class MaintenanceRealtimeGateway
         client.disconnect(true);
         return;
       }
-      await client.join('managers-maintenance');
+      await client.join(`manager:${payload.sub}`);
     } catch {
       this.logger.debug('WS disconnect: invalid token');
       client.disconnect(true);

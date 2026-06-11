@@ -368,22 +368,34 @@ export class TenantNotificationsService {
     }
   }
 
-  /** Unit + property from manager onboarding (`POST /api/managers/tenants` → `profile`). */
+  /** Unit + property from manager onboarding (`POST /api/managers/tenants` → `profile`), plus `fullName` from `users`. */
   async getTenantProfileSummary(
     tenantId: string,
-  ): Promise<{ unitNumber: string | null; propertyAssigned: string | null }> {
-    const tp = await this.tenantProfileRepository.findOne({
-      where: { userId: tenantId },
-    });
+  ): Promise<{
+    unitNumber: string | null;
+    propertyAssigned: string | null;
+    fullName: string | null;
+  }> {
+    const [tp, user] = await Promise.all([
+      this.tenantProfileRepository.findOne({
+        where: { userId: tenantId },
+      }),
+      this.usersRepository.findOne({
+        where: { id: tenantId },
+        select: ['id', 'fullName'],
+      }),
+    ]);
     const profile =
       tp?.profileData &&
       typeof tp.profileData === 'object' &&
       !Array.isArray(tp.profileData)
         ? (tp.profileData as Record<string, unknown>)
         : undefined;
+    const full = user?.fullName?.trim();
     return {
       unitNumber: strFromProfile(profile, 'unitNumber'),
       propertyAssigned: strFromProfile(profile, 'propertyAssigned'),
+      fullName: full && full.length > 0 ? full : null,
     };
   }
 

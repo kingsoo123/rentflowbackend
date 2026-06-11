@@ -29,7 +29,7 @@ export class TenantAssistantService {
     if (!message) {
       return {
         reply:
-          'Send a short question—for example about maintenance, **Alerts** / notifications, **Upcoming rent** (renewals), your **unit or property** (GET /api/tenants/profile), payments, or lease documents—and I will point you to the right place or summarize what we have on file.',
+          'Ask something in your own words—for example about maintenance, **Alerts** / notifications, **Upcoming rent** and renewals, your **unit or building**, payments, or lease documents—and I’ll point you to the right spot on your dashboard or summarize what we have on file.',
       };
     }
 
@@ -37,7 +37,7 @@ export class TenantAssistantService {
 
     if (this.isGreeting(lower)) {
       return {
-        reply: `Hi ${firstName}. I am your EstateFlow tenant assistant. I can summarize maintenance requests, explain **Alerts** (in-app notifications, including rent renewals), **Upcoming rent** on your dashboard, your **unit and building** (from GET /api/tenants/profile), payment history and balance, and where lease documents live. What would you like to know?`,
+        reply: `Hi ${firstName}. I’m your EstateFlow tenant assistant. I can help with maintenance requests, **Alerts** (in-app messages, including rent renewals), **Upcoming rent**, your **unit and building** as we have them on file, payments and balance, and where to find lease documents. What would you like to know?`,
       };
     }
 
@@ -105,7 +105,9 @@ export class TenantAssistantService {
     }
 
     return {
-      reply: `Hi ${firstName}. I did not match that to a specific topic yet.\n\n${this.buildHelpReply(firstName)}`,
+      reply: `Hi ${firstName} — I’m not sure I caught that yet.
+
+${this.buildHelpReply(firstName)}`,
     };
   }
 
@@ -167,7 +169,7 @@ export class TenantAssistantService {
     const unit = profile.unitNumber?.trim() || null;
     const prop = profile.propertyAssigned?.trim() || null;
     const managerNote =
-      'Your property manager sets **unitNumber** and **propertyAssigned** when they add or onboard a tenant (**POST /api/managers/tenants**). The tenant portal reads them with **GET /api/tenants/profile** (same values as the line under your name on the dashboard).';
+      'Your property manager sets your unit and building when they add or update your profile—that’s the same line you see under your name on the dashboard.';
 
     if (!unit && !prop) {
       return `Hi ${firstName}. We do not have a unit or property label on your profile yet.\n\n${managerNote}`;
@@ -188,7 +190,21 @@ export class TenantAssistantService {
   }
 
   private buildHelpReply(firstName: string): string {
-    return `Here is what I can help with, ${firstName}:\n\n• **Maintenance** — summarize your requests or explain how to submit a new issue (Maintenance → Submit issue). Data: GET /api/tenants/maintenance-requests; create: POST /api/tenants/maintenance-requests. Status changes from your manager also appear under **Alerts** (GET /api/tenants/notifications).\n• **Rent & payments** — **Upcoming rent** (GET /api/tenants/upcoming-rent), balance, Payment history, and **Alerts** for renewal letters (GET /api/tenants/notifications; mark read: PATCH /api/tenants/notifications/:id/read).\n• **Unit & building** — dashboard header (GET /api/tenants/profile returns unitNumber and propertyAssigned from manager onboarding).\n• **Live updates** — new notices refresh the Alerts indicator over Socket.IO /tenants/notifications (event notifications:updated).\n• **Lease documents** — downloads at the bottom of your dashboard.\n• **Assistant** — this chat: POST /api/tenants/assistant/chat (tenant JWT, body { message }).\n• **Account** — confirm the name and email on your login.\n\nAsk in your own words, for example: "Any unread notifications?" or "What is my renewal rent?" or "What unit am I in?"`;
+    return `Here’s what I can help with, ${firstName}:
+
+• **Maintenance** — recap your repair tickets or explain how to submit a new one (**Maintenance** → **Submit issue**). When your manager updates a request, you’ll usually see that in **Alerts** too.
+
+• **Rent & payments** — **Upcoming rent**, your balance, **Payment history**, and **Alerts** (where formal renewal letters often land).
+
+• **Unit & building** — what we show under your name on the dashboard, based on how your manager onboarded you.
+
+• **Live updates** — new notices show up in **Alerts** automatically, so your unread count stays current while you use the portal.
+
+• **Lease documents** — signed PDFs and add-ons at the bottom of your dashboard.
+
+• **Account** — confirm the name and email on your login.
+
+Ask however you like—for example: “Any unread messages?” “What’s my renewal rent?” or “What unit am I in?”`;
   }
 
   private buildNotificationsReply(
@@ -214,15 +230,21 @@ export class TenantAssistantService {
         bits.push(`lease-end / anchor date **${upcoming.effectiveDate}**`);
       }
       if (bits.length) {
-        dataLine = `\n\nOn your **Upcoming rent** card we also show: ${bits.join(' · ')} (from your latest delivered renewal notice).`;
+        dataLine = `\n\nYour **Upcoming rent** card is also carrying: ${bits.join(' · ')}—that comes from the latest renewal notice your manager sent through.`;
       }
     } else if (upcoming.source === 'profile' && upcoming.monthlyRentDisplay) {
-      dataLine = `\n\n**Upcoming rent** is currently using monthly rent on your profile (**${upcoming.monthlyRentDisplay}**) until a renewal notice with structured fields is delivered.`;
+      dataLine = `\n\n**Upcoming rent** is using the monthly rent on your profile (**${upcoming.monthlyRentDisplay}**) for now. If your manager sends a renewal with full details, we’ll layer those in on the card as well.`;
     }
 
-    const counts = `You have **${notifications.length}** notification(s) on file; **${unread}** unread (${renewalUnread} rent renewal · ${maintenanceUnread} maintenance status).`;
+    const counts = `You have **${notifications.length}** notification${notifications.length === 1 ? '' : 's'} on file, **${unread}** still unread (${renewalUnread} renewal-related, ${maintenanceUnread} maintenance update${maintenanceUnread === 1 ? '' : 's'}).`;
 
-    return `Hi ${firstName}. Open **Alerts** on your tenant dashboard to read in-app messages (rent renewal letters, maintenance status updates when your manager moves a request along, and similar). Expand a row to read the full message—doing so marks it read in the app.\n\n${counts}${dataLine}\n\n**APIs** the EstateFlow tenant app uses: GET /api/tenants/notifications (list), PATCH /api/tenants/notifications/:id/read (mark read), GET /api/tenants/upcoming-rent (Upcoming rent card), GET /api/tenants/profile (unit/building for the header). New items also trigger Socket.IO **notifications:updated** on namespace /tenants/notifications.`;
+    return `Hi ${firstName}.
+
+Open **Alerts** on your tenant dashboard for messages from your property team—rent renewal letters, maintenance status changes when your manager moves a ticket along, and similar. Open a row to read the whole thing; once you’ve read it in the app, we mark it read so your badge stays accurate.
+
+${counts}${dataLine}
+
+New items appear here as your manager sends them, and the list keeps itself in sync while you’re using the portal.`;
   }
 
   private buildRentReply(
@@ -232,36 +254,52 @@ export class TenantAssistantService {
   ): string {
     const unread = notifications.filter((n) => !n.isRead).length;
 
-    let renewalBlock = '';
+    let renewalText = '';
     if (upcoming.source === 'renewal_notice') {
-      const lines: string[] = [];
-      if (upcoming.monthlyRentDisplay) {
-        lines.push(
-          `Proposed renewal monthly rent: **${upcoming.monthlyRentDisplay}**`,
-        );
+      const rent = upcoming.monthlyRentDisplay;
+      const when = upcoming.effectiveDate
+        ? formatIsoDateForAssistant(upcoming.effectiveDate)
+        : null;
+      if (rent && when) {
+        renewalText = `From the latest renewal notice we have on file: your manager is proposing **${rent}** per month, with a renewal anchor date of **${when}**.`;
+      } else if (rent) {
+        renewalText = `From the latest renewal notice we have on file: your manager is proposing **${rent}** per month.`;
+      } else if (when) {
+        renewalText = `From the latest renewal notice we have on file: the renewal anchor date is **${when}**.`;
       }
-      if (upcoming.effectiveDate) {
-        lines.push(
-          `Lease-end / renewal anchor date: **${formatIsoDateForAssistant(upcoming.effectiveDate)}**`,
-        );
-      }
-      renewalBlock =
-        lines.length > 0
-          ? `\n\nFrom your latest renewal notice on file:\n${lines.join('\n')}`
-          : '';
     } else if (upcoming.source === 'profile' && upcoming.monthlyRentDisplay) {
-      renewalBlock = `\n\n**Upcoming rent** is showing monthly rent from your tenant profile (**${upcoming.monthlyRentDisplay}**). When your manager sends a renewal notice with structured fields, that card can also show renewal-specific dates.`;
+      renewalText = `**Upcoming rent** is currently showing **${upcoming.monthlyRentDisplay}** from your tenant profile. If your manager sends a renewal with dates and figures spelled out, we’ll show those details on that card too.`;
     } else {
-      renewalBlock =
-        '\n\n**Upcoming rent** will show renewal amounts and key dates after your property manager delivers a renewal notice with those fields, or rent on your profile otherwise.';
+      renewalText =
+        '**Upcoming rent** will fill in with renewal amounts and dates once your property manager sends a notice with those details—or with the rent on your profile until then.';
     }
 
-    const notifHint =
+    const notifText =
       unread > 0
-        ? `\n\nYou have **${unread}** unread notification(s)—check **Alerts** for letters such as rent renewals.`
+        ? `You’ve got **${unread}** unread message${unread === 1 ? '' : 's'} in **Alerts**—worth a quick look for things like rent renewals.`
         : '';
 
-    return `Hi ${firstName}. On your **Dashboard**: use **Upcoming rent** for renewal summary data, **Current balance** and **Payment history** for what you owe and what was paid, and **Alerts** for messages from your property manager.${renewalBlock}${notifHint}\n\n**REST:** GET /api/tenants/upcoming-rent, GET /api/tenants/notifications, PATCH /api/tenants/notifications/:id/read, GET /api/tenants/profile (unit + property labels). **WebSocket:** /tenants/notifications → event **notifications:updated** when something new arrives. **Maintenance:** GET /api/tenants/maintenance-requests, POST /api/tenants/maintenance-requests.`;
+    const out: string[] = [
+      `Hi ${firstName}.`,
+      '',
+      'Think of your dashboard in four buckets:',
+      '',
+      '• **Upcoming rent** — renewal summaries when your manager has shared them.',
+      '• **Current balance** — what you owe right now.',
+      '• **Payment history** — what’s already been paid.',
+      '• **Alerts** — letters and updates from your property manager.',
+    ];
+    if (renewalText) {
+      out.push('', renewalText);
+    }
+    if (notifText) {
+      out.push('', notifText);
+    }
+    out.push(
+      '',
+      'Those areas stay up to date on their own as we receive new information—start there whenever you’re checking on rent or money matters.',
+    );
+    return out.join('\n');
   }
 
   private buildLeaseReply(firstName: string, lower: string): string {
@@ -269,7 +307,7 @@ export class TenantAssistantService {
       /\b(renewal|renew|rent increase|new rent)\b/i.test(lower) &&
       !this.isNotificationsTopic(lower);
     const extra = renewal
-      ? '\n\nFor formal renewal letters, also check **Alerts** (GET /api/tenants/notifications)—your manager may deliver the full notice there.'
+      ? '\n\nIf you’re looking for the formal renewal letter itself, your manager may have placed it in **Alerts** as well.'
       : '';
     return `Hi ${firstName}. Signed lease PDFs and related paperwork are under **Lease documents** at the bottom of your dashboard—each row has a download action.${extra}`;
   }
@@ -284,11 +322,11 @@ export class TenantAssistantService {
       /\b(request|issue|ticket|maintenance)\b/i.test(original);
 
     if (wantsHowToSubmit) {
-      return `Hi ${firstName}. To report a new problem, open **Maintenance** in the tenant portal, choose **Submit issue**, then describe what is wrong and pick urgency. You can track everything under **Track requests** on the same page. The app loads your tickets from GET /api/tenants/maintenance-requests and creates new ones with POST /api/tenants/maintenance-requests. Your unit/building label on the dashboard comes from GET /api/tenants/profile.`;
+      return `Hi ${firstName}. To log a new problem, open **Maintenance**, choose **Submit issue**, then describe what’s wrong and pick how urgent it is. You can follow everything under **Track requests** on the same page. Your unit and building at the top of the dashboard help your team know where to respond.`;
     }
 
     if (rows.length === 0) {
-      return `Hi ${firstName}. You do not have any maintenance requests on file yet. When something needs attention, use Maintenance → Submit issue so your property team can respond. (POST /api/tenants/maintenance-requests creates a request.)`;
+      return `Hi ${firstName}. You don’t have any maintenance requests on file yet. When something needs attention, go to **Maintenance** → **Submit issue** so your property team can help.`;
     }
 
     const active = rows.filter((r) => r.status !== 'resolved');
@@ -303,7 +341,11 @@ export class TenantAssistantService {
     const more =
       rows.length > 10 ? `\n…plus ${rows.length - 10} more in the full list.` : '';
 
-    return `Hi ${firstName}. You have ${rows.length} maintenance request(s) on file; ${active.length} are still open or in progress.\n\n${lines}${more}\n\nOpen the **Maintenance** page for full details, attachments, and updates (same data as GET /api/tenants/maintenance-requests). When your manager changes a request’s status, you also get an **Alerts** notification (GET /api/tenants/notifications). Related: GET /api/tenants/profile for unit/property shown on the dashboard header.`;
+    return `Hi ${firstName}. You’ve got **${rows.length}** maintenance request${rows.length === 1 ? '' : 's'} on file; **${active.length}** ${active.length === 1 ? 'is' : 'are'} still open or in progress.
+
+${lines}${more}
+
+Use the **Maintenance** page for full details, photos, and updates. When your manager changes a ticket’s status, you’ll usually see a note in **Alerts** too—and your unit or building stays visible at the top of the dashboard for context.`;
   }
 }
 
