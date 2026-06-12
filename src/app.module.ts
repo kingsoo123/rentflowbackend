@@ -10,6 +10,7 @@ import { ManagersModule } from './managers/managers.module';
 import { MaintenanceModule } from './maintenance/maintenance.module';
 import { TenantAssistantModule } from './tenant-assistant/tenant-assistant.module';
 import { TenantNotificationsModule } from './tenant-notifications/tenant-notifications.module';
+import { ServiceChargesModule } from './service-charges/service-charges.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { TenantNotificationsModule } from './tenant-notifications/tenant-notific
     MaintenanceModule,
     TenantAssistantModule,
     TenantNotificationsModule,
+    ServiceChargesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
