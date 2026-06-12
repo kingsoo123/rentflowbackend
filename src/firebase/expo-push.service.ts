@@ -54,6 +54,8 @@ export class ExpoPushService {
         title: truncate(title, 120),
         body: truncate(body, 360),
         data: dataObj,
+        /** Matches `setNotificationChannelAsync('default', …)` in the mobile app. */
+        channelId: 'default',
       }));
       try {
         const res = await fetch(this.endpoint, {

@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -86,6 +87,8 @@ function strFromProfile(
 
 @Injectable()
 export class TenantNotificationsService {
+  private readonly logger = new Logger(TenantNotificationsService.name);
+
   constructor(
     @InjectRepository(TenantNotification)
     private readonly notificationsRepository: Repository<TenantNotification>,
@@ -191,10 +194,13 @@ export class TenantNotificationsService {
     });
     const saved = await this.notificationsRepository.save(row);
     this.tenantNotificationsRealtime.notifyTenant(tenant.id, { id: saved.id });
-    void this.fcmPush.notifyTenant(tenant.id, headline, params.noticeBody, {
+    await this.fcmPush.notifyTenant(tenant.id, headline, params.noticeBody, {
       kind: 'rent_renewal',
       notificationId: saved.id,
     });
+    this.logger.log(
+      `Rent renewal in-app + push dispatched for tenantId=${tenant.id} notificationId=${saved.id}`,
+    );
 
     const mail = await this.rentRenewalMailService.sendRentRenewalNoticeEmail({
       to: tenant.email,

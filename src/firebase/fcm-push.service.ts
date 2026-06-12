@@ -56,6 +56,9 @@ export class FcmPushService {
     data: Record<string, string>,
   ): Promise<void> {
     const rows = await this.devicePushTokens.findAllPushTokensByUserIds([tenantId]);
+    if (rows.length === 0) {
+      this.logger.warn(`notifyTenant: no device push tokens stored for user ${tenantId}`);
+    }
     const expoRows = rows.filter(
       (r) => r.tokenProvider === 'expo' && ExpoPushService.isExpoPushToken(r.token),
     );
