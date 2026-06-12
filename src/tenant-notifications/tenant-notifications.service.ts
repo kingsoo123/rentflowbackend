@@ -345,6 +345,37 @@ export class TenantNotificationsService {
     };
   }
 
+  /**
+   * Manager-created task: in-app row + socket + push (Expo + native FCM) per tenant.
+   */
+  async createManagerTaskNotificationsForTenants(params: {
+    tenantIds: string[];
+    headline: string;
+    body: string;
+  }): Promise<{ notified: number }> {
+    const unique = [...new Set(params.tenantIds)];
+    let notified = 0;
+    for (const tenantId of unique) {
+      const row = this.notificationsRepository.create({
+        tenantId,
+        kind: 'manager_task',
+        headline: params.headline.slice(0, 280),
+        body: params.body.slice(0, 4000),
+        isRead: false,
+        renewalMonthlyRentDisplay: null,
+        renewalEffectiveDate: null,
+      });
+      const saved = await this.notificationsRepository.save(row);
+      this.tenantNotificationsRealtime.notifyTenant(tenantId, { id: saved.id });
+      void this.fcmPush.notifyTenant(tenantId, params.headline, params.body, {
+        kind: 'manager_task',
+        notificationId: saved.id,
+      });
+      notified += 1;
+    }
+    return { notified };
+  }
+
   async listPropertyBroadcastsForManager(
     managerId: string,
   ): Promise<PropertyBroadcastSummary[]> {

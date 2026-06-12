@@ -28,6 +28,10 @@ export class UserDevicePushToken {
   @Column({ type: 'varchar', length: 16 })
   platform: string;
 
+  /** `native` = device token for FCM/APNs via Firebase; `expo` = Expo push token (`ExponentPushToken[...]`). */
+  @Column({ name: 'token_provider', type: 'varchar', length: 16, default: 'native' })
+  tokenProvider: string;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 

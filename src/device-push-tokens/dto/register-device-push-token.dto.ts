@@ -1,4 +1,4 @@
-import { IsIn, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class RegisterDevicePushTokenDto {
   @IsString()
@@ -8,4 +8,9 @@ export class RegisterDevicePushTokenDto {
 
   @IsIn(['ios', 'android'])
   platform: 'ios' | 'android';
+
+  /** `native` = FCM/APNs device token; `expo` = Expo push token (recommended for iOS + Android alerts). */
+  @IsOptional()
+  @IsIn(['native', 'expo'])
+  tokenProvider?: 'native' | 'expo';
 }

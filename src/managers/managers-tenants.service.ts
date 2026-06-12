@@ -175,6 +175,30 @@ export class ManagersTenantsService {
     }
   }
 
+  /** Distinct tenant user ids on this manager’s occupancy roster (same rules as `GET /api/managers/tenants`). */
+  async listTenantIdsOnManagerRoster(
+    managerUserId: string,
+    limit = 200,
+  ): Promise<string[]> {
+    const rows = await this.usersRepository
+      .createQueryBuilder('u')
+      .select('u.id', 'id')
+      .leftJoin(TenantProfile, 'tp', 'tp.userId = u.id')
+      .where('u.role = :role', { role: UserRole.TENANT })
+      .andWhere(
+        `EXISTS (
+          SELECT 1 FROM properties p
+          WHERE p.manager_user_id = :managerUserId
+            AND LOWER(TRIM(COALESCE(tp.profile_data->>'propertyAssigned',''))) = LOWER(TRIM(p.name))
+        )`,
+        { managerUserId },
+      )
+      .orderBy('u.createdAt', 'DESC')
+      .take(limit)
+      .getRawMany<{ id: string }>();
+    return rows.map((r) => r.id).filter(Boolean);
+  }
+
   /**
    * Whether an account from self-service signup exists for this email as role `tenant`.
    * Used before managers enrich onboarding data for a resident who must register first.

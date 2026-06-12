@@ -12,6 +12,7 @@ import { ManagersMaintenanceRequestsController } from './managers-maintenance-re
 import { ManagersMaintenanceRequestsService } from './managers-maintenance-requests.service';
 import { ManagersPortfolioController } from './managers-portfolio.controller';
 import { ManagersPortfolioService } from './managers-portfolio.service';
+import { ManagersTaskNotificationsController } from './managers-task-notifications.controller';
 import { ManagersTenantsController } from './managers-tenants.controller';
 import { ManagersTenantsService } from './managers-tenants.service';
 
@@ -25,6 +26,7 @@ import { ManagersTenantsService } from './managers-tenants.service';
     ManagersPortfolioController,
     ManagersTenantsController,
     ManagersMaintenanceRequestsController,
+    ManagersTaskNotificationsController,
   ],
   providers: [
     JwtAuthGuard,

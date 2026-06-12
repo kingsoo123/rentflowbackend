@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DevicePushTokensService } from '../device-push-tokens/device-push-tokens.service';
+import { ExpoPushService } from './expo-push.service';
 import { FirebaseAdminService } from './firebase-admin.service';
 
 function getMessagingErrorCode(err: unknown): string | undefined {
@@ -36,8 +37,7 @@ function fcmText(s: string, max: number): string {
 }
 
 /**
- * Sends FCM notifications to stored **Android** device tokens only.
- * iOS rows from Expo are typically APNs device tokens — use a separate APNs path if needed.
+ * Delivers push: **Expo** tokens (iOS + Android) and **native FCM** (Android `native` rows).
  */
 @Injectable()
 export class FcmPushService {
@@ -46,23 +46,34 @@ export class FcmPushService {
   constructor(
     private readonly firebaseAdmin: FirebaseAdminService,
     private readonly devicePushTokens: DevicePushTokensService,
+    private readonly expoPush: ExpoPushService,
   ) {}
 
-  /**
-   * One tenant, one headline/body — iterates all Android tokens for that user.
-   */
   async notifyTenant(
     tenantId: string,
     title: string,
     body: string,
     data: Record<string, string>,
   ): Promise<void> {
+    const rows = await this.devicePushTokens.findAllPushTokensByUserIds([tenantId]);
+    const expoRows = rows.filter(
+      (r) => r.tokenProvider === 'expo' && ExpoPushService.isExpoPushToken(r.token),
+    );
+    if (expoRows.length > 0) {
+      await this.expoPush.sendForRows(
+        expoRows.map((r) => ({ userId: r.userId, token: r.token })),
+        title,
+        body,
+        data,
+      );
+    }
+
     const messaging = this.firebaseAdmin.getMessaging();
     if (!messaging) {
       return;
     }
-    const rows = await this.devicePushTokens.findAndroidTokensByUserIds([tenantId]);
-    for (const row of rows) {
+    const nativeAndroid = rows.filter((r) => r.tokenProvider === 'native' && r.platform === 'android');
+    for (const row of nativeAndroid) {
       try {
         await messaging.send({
           token: row.token,
@@ -81,27 +92,40 @@ export class FcmPushService {
     }
   }
 
-  /**
-   * Same notification to many tenants (e.g. portfolio broadcast). Uses multicast in chunks of 500.
-   */
   async notifyTenantsMulticast(
     tenantIds: string[],
     title: string,
     body: string,
     data: Record<string, string>,
   ): Promise<void> {
-    const messaging = this.firebaseAdmin.getMessaging();
-    if (!messaging || tenantIds.length === 0) {
+    if (tenantIds.length === 0) {
       return;
     }
-    const rows = await this.devicePushTokens.findAndroidTokensByUserIds(tenantIds);
-    if (rows.length === 0) {
+    const rows = await this.devicePushTokens.findAllPushTokensByUserIds(tenantIds);
+    const expoRows = rows.filter(
+      (r) => r.tokenProvider === 'expo' && ExpoPushService.isExpoPushToken(r.token),
+    );
+    if (expoRows.length > 0) {
+      await this.expoPush.sendForRows(
+        expoRows.map((r) => ({ userId: r.userId, token: r.token })),
+        title,
+        body,
+        data,
+      );
+    }
+
+    const messaging = this.firebaseAdmin.getMessaging();
+    if (!messaging) {
+      return;
+    }
+    const nativeAndroid = rows.filter((r) => r.tokenProvider === 'native' && r.platform === 'android');
+    if (nativeAndroid.length === 0) {
       return;
     }
     const dataPayload = stringifyData(data);
     const chunkSize = 500;
-    for (let i = 0; i < rows.length; i += chunkSize) {
-      const chunk = rows.slice(i, i + chunkSize);
+    for (let i = 0; i < nativeAndroid.length; i += chunkSize) {
+      const chunk = nativeAndroid.slice(i, i + chunkSize);
       const tokens = chunk.map((r) => r.token);
       try {
         const batch = await messaging.sendEachForMulticast({

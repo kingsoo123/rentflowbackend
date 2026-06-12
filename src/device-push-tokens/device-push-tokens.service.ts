@@ -17,7 +17,17 @@ export class DevicePushTokensService {
       return [];
     }
     return this.tokenRepository.find({
-      where: { userId: In(userIds), platform: 'android' },
+      where: { userId: In(userIds), platform: 'android', tokenProvider: 'native' },
+    });
+  }
+
+  /** All stored push targets for FCM (`native`) and Expo (`expo`) for the given users. */
+  async findAllPushTokensByUserIds(userIds: string[]): Promise<UserDevicePushToken[]> {
+    if (userIds.length === 0) {
+      return [];
+    }
+    return this.tokenRepository.find({
+      where: { userId: In(userIds) },
     });
   }
 
@@ -26,11 +36,13 @@ export class DevicePushTokensService {
   }
 
   async upsertForUser(userId: string, dto: RegisterDevicePushTokenDto): Promise<void> {
+    const provider = dto.tokenProvider ?? 'native';
     const existing = await this.tokenRepository.findOne({
       where: { userId, token: dto.token },
     });
     if (existing) {
       existing.platform = dto.platform;
+      existing.tokenProvider = provider;
       await this.tokenRepository.save(existing);
       return;
     }
@@ -38,6 +50,7 @@ export class DevicePushTokensService {
       userId,
       token: dto.token,
       platform: dto.platform,
+      tokenProvider: provider,
     });
     await this.tokenRepository.save(row);
   }
