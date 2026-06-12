@@ -11,6 +11,7 @@ import { TenantProfile } from '../users/tenant-profile.entity';
 import { TenantNotification } from './tenant-notification.entity';
 import { PropertyBroadcast } from './property-broadcast.entity';
 import { RentRenewalMailService } from '../email/rent-renewal-mail.service';
+import { FcmPushService } from '../firebase/fcm-push.service';
 import { TenantNotificationsRealtimeService } from './tenant-notifications-realtime.service';
 
 export type TenantNotificationRow = {
@@ -96,6 +97,7 @@ export class TenantNotificationsService {
     private readonly tenantProfileRepository: Repository<TenantProfile>,
     private readonly tenantNotificationsRealtime: TenantNotificationsRealtimeService,
     private readonly rentRenewalMailService: RentRenewalMailService,
+    private readonly fcmPush: FcmPushService,
   ) {}
 
   /**
@@ -189,6 +191,10 @@ export class TenantNotificationsService {
     });
     const saved = await this.notificationsRepository.save(row);
     this.tenantNotificationsRealtime.notifyTenant(tenant.id, { id: saved.id });
+    void this.fcmPush.notifyTenant(tenant.id, headline, params.noticeBody, {
+      kind: 'rent_renewal',
+      notificationId: saved.id,
+    });
 
     const mail = await this.rentRenewalMailService.sendRentRenewalNoticeEmail({
       to: tenant.email,
@@ -246,6 +252,10 @@ export class TenantNotificationsService {
     const saved = await this.notificationsRepository.save(row);
     this.tenantNotificationsRealtime.notifyTenant(params.tenantId, {
       id: saved.id,
+    });
+    void this.fcmPush.notifyTenant(params.tenantId, headline, body, {
+      kind: 'maintenance_status',
+      notificationId: saved.id,
     });
     return { id: saved.id };
   }
@@ -317,6 +327,16 @@ export class TenantNotificationsService {
     for (const t of tenants) {
       this.tenantNotificationsRealtime.notifyTenant(t.id, {});
     }
+
+    void this.fcmPush.notifyTenantsMulticast(
+      tenants.map((t) => t.id),
+      headline,
+      body,
+      {
+        kind: 'property_broadcast',
+        broadcastId,
+      },
+    );
 
     return {
       broadcastId,

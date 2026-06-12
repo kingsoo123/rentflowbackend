@@ -85,6 +85,15 @@ Rent renewal emails are skipped if unset; in-app notifications still work.
 | `RESEND_API_KEY` | API key from [Resend](https://resend.com). |
 | `RESEND_FROM` | Verified sender, e.g. `EstateFlow <notifications@yourdomain.com>`. Defaults to Resend’s onboarding address if unset. |
 
+### Optional — Firebase Cloud Messaging (Android)
+
+FCM is **off** until credentials are set. The mobile app stores **Android** FCM tokens via `POST /api/device-push-token`; the server sends pushes when tenant in-app notifications are created (renewal, maintenance status, portfolio broadcast).
+
+| Variable | Description |
+|----------|-------------|
+| `FIREBASE_SERVICE_ACCOUNT_BASE64` | Base64-encoded contents of your Firebase **service account** JSON (Firebase Console → Project settings → Service accounts → Generate new private key). Single line, no newlines. |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Alternative for some hosts: absolute path to the JSON key file (less common on Render; prefer base64 env). |
+
 ---
 
 ## Frontend + WebSockets

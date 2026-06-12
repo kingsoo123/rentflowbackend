@@ -11,6 +11,8 @@ import { MaintenanceModule } from './maintenance/maintenance.module';
 import { TenantAssistantModule } from './tenant-assistant/tenant-assistant.module';
 import { TenantNotificationsModule } from './tenant-notifications/tenant-notifications.module';
 import { ServiceChargesModule } from './service-charges/service-charges.module';
+import { DevicePushTokensModule } from './device-push-tokens/device-push-tokens.module';
+import { FirebaseModule } from './firebase/firebase.module';
 
 @Module({
   imports: [
@@ -34,6 +36,8 @@ import { ServiceChargesModule } from './service-charges/service-charges.module';
     TenantAssistantModule,
     TenantNotificationsModule,
     ServiceChargesModule,
+    DevicePushTokensModule,
+    FirebaseModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -15,10 +15,12 @@ import { TenantNotificationsRealtimeService } from './tenant-notifications-realt
 import { TenantNotificationsService } from './tenant-notifications.service';
 import { TenantsProfileController } from './tenants-profile.controller';
 import { TenantsUpcomingRentController } from './tenants-upcoming-rent.controller';
+import { FirebaseModule } from '../firebase/firebase.module';
 
 @Module({
   imports: [
     AuthModule,
+    FirebaseModule,
     TypeOrmModule.forFeature([
       TenantNotification,
       PropertyBroadcast,

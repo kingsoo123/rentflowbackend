@@ -55,5 +55,9 @@ pids
 *.seed
 *.pid.lock
 
+*.json
+service-account.json
+rentpilot-3c8e4-firebase-adminsdk-fbsvc-0a7f02c918.json
+
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
