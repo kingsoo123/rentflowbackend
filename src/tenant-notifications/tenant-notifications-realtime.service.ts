@@ -21,6 +21,12 @@ export class TenantNotificationsRealtimeService {
     const room = tenantNotificationsRoom(tenantId);
     this.namespace?.to(room).emit('maintenance:updated', payload);
   }
+
+  /** Tell tenant clients to refetch service charge lines (manager saved fees for their building). */
+  notifyServiceChargesUpdated(tenantId: string): void {
+    const room = tenantNotificationsRoom(tenantId);
+    this.namespace?.to(room).emit('service-charges:updated', {});
+  }
 }
 
 export function tenantNotificationsRoom(tenantId: string): string {

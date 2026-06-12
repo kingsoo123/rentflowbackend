@@ -9,6 +9,7 @@ import { Property } from '../properties/property.entity';
 import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
 import { UserRole } from '../users/user-role.enum';
+import { TenantNotificationsRealtimeService } from '../tenant-notifications/tenant-notifications-realtime.service';
 import type { PutServiceChargesDto } from './dto/put-service-charges.dto';
 import { ServiceChargeLine } from './service-charge-line.entity';
 
@@ -34,6 +35,7 @@ export class ServiceChargesService {
     private readonly lineRepository: Repository<ServiceChargeLine>,
     @InjectRepository(Property)
     private readonly propertyRepository: Repository<Property>,
+    private readonly tenantNotificationsRealtime: TenantNotificationsRealtimeService,
   ) {}
 
   private async assertPropertyOwnedByManager(
@@ -117,7 +119,39 @@ export class ServiceChargesService {
       throw error;
     }
 
+    const tenantIds = await this.listTenantIdsWhoSeeServiceChargesForProperty(propertyId);
+    for (const tenantId of tenantIds) {
+      this.tenantNotificationsRealtime.notifyServiceChargesUpdated(tenantId);
+    }
+
     return this.listForProperty(managerUserId, propertyId);
+  }
+
+  /**
+   * Tenant user IDs for whom `GET /api/tenants/service-charges` reads lines from this
+   * property (same name match + oldest-property rule as `findPropertyForTenant`).
+   */
+  private async listTenantIdsWhoSeeServiceChargesForProperty(
+    propertyId: string,
+  ): Promise<string[]> {
+    const rows = await this.propertyRepository.query<Array<{ id: string }>>(
+      `
+      SELECT u.id AS id
+      FROM users u
+      INNER JOIN tenant_profiles tp ON tp.user_id = u.id
+      INNER JOIN properties canon ON canon.id = $1
+      WHERE u.role = $2
+        AND LOWER(TRIM(COALESCE(tp.profile_data->>'propertyAssigned',''))) = LOWER(TRIM(canon.name))
+        AND (
+          SELECT p2.id FROM properties p2
+          WHERE LOWER(TRIM(p2.name)) = LOWER(TRIM(canon.name))
+          ORDER BY p2.created_at ASC
+          LIMIT 1
+        ) = canon.id
+      `,
+      [propertyId, UserRole.TENANT],
+    );
+    return rows.map((r) => r.id);
   }
 
   /**
