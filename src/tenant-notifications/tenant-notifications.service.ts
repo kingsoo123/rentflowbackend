@@ -382,6 +382,44 @@ export class TenantNotificationsService {
     return { notified };
   }
 
+  /**
+   * After a manager saves service charge lines for a property: in-app row + socket
+   * (`notifications:updated`) + push per affected tenant.
+   */
+  async createServiceChargeNotificationsForTenants(params: {
+    tenantIds: string[];
+    propertyName: string;
+  }): Promise<{ notified: number }> {
+    const unique = [...new Set(params.tenantIds)];
+    const name = params.propertyName.trim() || 'your building';
+    const headline = 'Service charges updated';
+    const body =
+      `Your property manager updated fees for ${name}. Open Service charges on your dashboard to review the line items.`.slice(
+        0,
+        4000,
+      );
+    let notified = 0;
+    for (const tenantId of unique) {
+      const row = this.notificationsRepository.create({
+        tenantId,
+        kind: 'service_charges',
+        headline: headline.slice(0, 280),
+        body,
+        isRead: false,
+        renewalMonthlyRentDisplay: null,
+        renewalEffectiveDate: null,
+      });
+      const saved = await this.notificationsRepository.save(row);
+      this.tenantNotificationsRealtime.notifyTenant(tenantId, { id: saved.id });
+      await this.fcmPush.notifyTenant(tenantId, headline, body, {
+        kind: 'service_charges',
+        notificationId: saved.id,
+      });
+      notified += 1;
+    }
+    return { notified };
+  }
+
   async listPropertyBroadcastsForManager(
     managerId: string,
   ): Promise<PropertyBroadcastSummary[]> {

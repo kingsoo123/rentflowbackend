@@ -10,6 +10,7 @@ import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
 import { UserRole } from '../users/user-role.enum';
 import { TenantNotificationsRealtimeService } from '../tenant-notifications/tenant-notifications-realtime.service';
+import { TenantNotificationsService } from '../tenant-notifications/tenant-notifications.service';
 import type { PutServiceChargesDto } from './dto/put-service-charges.dto';
 import { ServiceChargeLine } from './service-charge-line.entity';
 
@@ -36,6 +37,7 @@ export class ServiceChargesService {
     @InjectRepository(Property)
     private readonly propertyRepository: Repository<Property>,
     private readonly tenantNotificationsRealtime: TenantNotificationsRealtimeService,
+    private readonly tenantNotifications: TenantNotificationsService,
   ) {}
 
   private async assertPropertyOwnedByManager(
@@ -95,7 +97,10 @@ export class ServiceChargesService {
     propertyId: string,
     dto: PutServiceChargesDto,
   ): Promise<{ lines: ServiceChargeLineRow[] }> {
-    await this.assertPropertyOwnedByManager(managerUserId, propertyId);
+    const property = await this.assertPropertyOwnedByManager(
+      managerUserId,
+      propertyId,
+    );
     const lines = dto.lines ?? [];
 
     try {
@@ -119,7 +124,15 @@ export class ServiceChargesService {
       throw error;
     }
 
-    const tenantIds = await this.listTenantIdsWhoSeeServiceChargesForProperty(propertyId);
+    const tenantIds = await this.listTenantIdsWhoSeeServiceChargesForProperty(
+      propertyId,
+    );
+    if (tenantIds.length > 0) {
+      await this.tenantNotifications.createServiceChargeNotificationsForTenants({
+        tenantIds,
+        propertyName: property.name,
+      });
+    }
     for (const tenantId of tenantIds) {
       this.tenantNotificationsRealtime.notifyServiceChargesUpdated(tenantId);
     }
