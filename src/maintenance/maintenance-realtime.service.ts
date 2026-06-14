@@ -25,4 +25,17 @@ export class MaintenanceRealtimeService {
       this.namespace.to(`manager:${managerUserId}`).emit('maintenance:created', payload);
     }
   }
+
+  /** Same namespace as maintenance — clients already connect here for manager live updates. */
+  notifyLeaseFormSubmitted(
+    payload: { id: string; tenantId: string; tenantName: string },
+    managerUserIds: string[],
+  ): void {
+    if (!this.namespace || managerUserIds.length === 0) {
+      return;
+    }
+    for (const managerUserId of managerUserIds) {
+      this.namespace.to(`manager:${managerUserId}`).emit('lease_form:submitted', payload);
+    }
+  }
 }

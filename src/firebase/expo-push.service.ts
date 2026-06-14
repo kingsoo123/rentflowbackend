@@ -16,6 +16,9 @@ function truncate(s: string, max: number): string {
   return `${t.slice(0, Math.max(0, max - 1))}…`;
 }
 
+/** Shown under the headline on iOS (Expo → APNs `subtitle`); Android may show as subtext. */
+const RENT_PILOT_PUSH_SUBTITLE = 'Rent Pilot';
+
 /**
  * Sends via Expo’s HTTP push API (works for iOS + Android with `ExponentPushToken[...]`).
  * @see https://docs.expo.dev/push-notifications/sending-notifications/
@@ -52,10 +55,12 @@ export class ExpoPushService {
         to: r.token,
         sound: 'default' as const,
         title: truncate(title, 120),
+        subtitle: RENT_PILOT_PUSH_SUBTITLE,
         body: truncate(body, 360),
         data: dataObj,
         /** Matches `setNotificationChannelAsync('default', …)` in the mobile app. */
         channelId: 'default',
+        priority: 'high' as const,
       }));
       try {
         const res = await fetch(this.endpoint, {

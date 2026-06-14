@@ -27,6 +27,9 @@ function stringifyData(data: Record<string, string>): Record<string, string> {
   return out;
 }
 
+/** Rent Pilot brand accent for native FCM Android notification chrome (ARGB hex). */
+const ANDROID_NOTIFICATION_COLOR = '#0A192F';
+
 /** FCM `notification` title/body should stay reasonably short for OS UI. */
 function fcmText(s: string, max: number): string {
   const t = s.trim().replace(/\s+/g, ' ');
@@ -82,6 +85,13 @@ export class FcmPushService {
           token: row.token,
           notification: { title: fcmText(title, 120), body: fcmText(body, 360) },
           data: stringifyData(data),
+          android: {
+            priority: 'high',
+            notification: {
+              channelId: 'default',
+              color: ANDROID_NOTIFICATION_COLOR,
+            },
+          },
         });
       } catch (e) {
         if (isUnregisteredTokenError(e)) {
@@ -135,6 +145,13 @@ export class FcmPushService {
           tokens,
           notification: { title: fcmText(title, 120), body: fcmText(body, 360) },
           data: dataPayload,
+          android: {
+            priority: 'high',
+            notification: {
+              channelId: 'default',
+              color: ANDROID_NOTIFICATION_COLOR,
+            },
+          },
         });
         batch.responses.forEach((resp, idx) => {
           if (resp.success) {

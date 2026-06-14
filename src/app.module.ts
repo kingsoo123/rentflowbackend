@@ -7,6 +7,7 @@ import { configuration, createTypeOrmOptions, validateEnv } from './config';
 import { AuthModule } from './auth/auth.module';
 import { HealthModule } from './health/health.module';
 import { ManagersModule } from './managers/managers.module';
+import { LeaseFormsModule } from './lease-forms/lease-forms.module';
 import { MaintenanceModule } from './maintenance/maintenance.module';
 import { TenantAssistantModule } from './tenant-assistant/tenant-assistant.module';
 import { TenantNotificationsModule } from './tenant-notifications/tenant-notifications.module';
@@ -33,6 +34,7 @@ import { FirebaseModule } from './firebase/firebase.module';
     AuthModule,
     ManagersModule,
     MaintenanceModule,
+    LeaseFormsModule,
     TenantAssistantModule,
     TenantNotificationsModule,
     ServiceChargesModule,

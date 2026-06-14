@@ -20,6 +20,6 @@ import { TenantMaintenanceRequestsService } from './tenant-maintenance-requests.
     JwtAuthGuard,
     RolesGuard,
   ],
-  exports: [TenantMaintenanceRequestsService],
+  exports: [TenantMaintenanceRequestsService, MaintenanceRealtimeService],
 })
 export class MaintenanceModule {}
