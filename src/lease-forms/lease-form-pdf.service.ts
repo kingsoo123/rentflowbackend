@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import PDFDocument from 'pdfkit';
+import PDFDocument = require('pdfkit');
 import type { LeaseFormTemplateDef } from './lease-form-template';
 import type { TenantLeaseFormSubmission } from './tenant-lease-form-submission.entity';
 
