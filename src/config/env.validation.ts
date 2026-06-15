@@ -61,7 +61,7 @@ function normalizeAndAssertPostgresUrl(raw: string): string {
 }
 
 /**
- * `.env` must use literal values (e.g. PORT=3001), not JS expressions.
+ * `.env` must use literal values (e.g. PORT=3002), not JS expressions.
  * Strips blank PORT; normalizes numeric strings; drops invalid values so defaults apply.
  */
 function sanitizePort(config: Record<string, unknown>): void {
@@ -77,7 +77,7 @@ function sanitizePort(config: Record<string, unknown>): void {
   }
   if (!/^\d{1,5}$/.test(s)) {
     throw new Error(
-      `PORT must be a number 1–65535 (not "${s.slice(0, 120)}"). In .env use a literal like PORT=3001 — shell env files cannot run JavaScript.`,
+      `PORT must be a number 1–65535 (not "${s.slice(0, 120)}"). In .env use a literal like PORT=3002 — shell env files cannot run JavaScript.`,
     );
   }
   const n = parseInt(s, 10);

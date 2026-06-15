@@ -10,14 +10,14 @@ export interface AppConfiguration {
 export default (): AppConfiguration => {
   const nodeEnv = process.env.NODE_ENV ?? 'development';
 
-  const parsedPort = parseInt(process.env.PORT ?? '3001', 10);
+  const parsedPort = parseInt(process.env.PORT ?? '3002', 10);
   const port =
     Number.isFinite(parsedPort) && parsedPort > 0 && parsedPort <= 65535
       ? parsedPort
-      : 3001;
+      : 3002;
 
   return {
-    /** Default 3001 so Next.js can use 3000 in the same monorepo. */
+    /** Default 3002: Next.js often uses 3000 and may take 3001 when 3000 is busy. */
     port,
     nodeEnv,
     corsOrigin: parseCorsOrigin(process.env.CORS_ORIGIN),

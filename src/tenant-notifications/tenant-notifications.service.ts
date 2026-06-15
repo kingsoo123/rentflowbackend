@@ -1,7 +1,6 @@
 import {
   BadRequestException,
   Injectable,
-  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -12,7 +11,6 @@ import { TenantProfile } from '../users/tenant-profile.entity';
 import { TenantNotification } from './tenant-notification.entity';
 import { PropertyBroadcast } from './property-broadcast.entity';
 import { RentRenewalMailService } from '../email/rent-renewal-mail.service';
-import { FcmPushService } from '../firebase/fcm-push.service';
 import { TenantNotificationsRealtimeService } from './tenant-notifications-realtime.service';
 
 export type TenantNotificationRow = {
@@ -87,8 +85,6 @@ function strFromProfile(
 
 @Injectable()
 export class TenantNotificationsService {
-  private readonly logger = new Logger(TenantNotificationsService.name);
-
   constructor(
     @InjectRepository(TenantNotification)
     private readonly notificationsRepository: Repository<TenantNotification>,
@@ -100,7 +96,6 @@ export class TenantNotificationsService {
     private readonly tenantProfileRepository: Repository<TenantProfile>,
     private readonly tenantNotificationsRealtime: TenantNotificationsRealtimeService,
     private readonly rentRenewalMailService: RentRenewalMailService,
-    private readonly fcmPush: FcmPushService,
   ) {}
 
   /**
@@ -194,13 +189,6 @@ export class TenantNotificationsService {
     });
     const saved = await this.notificationsRepository.save(row);
     this.tenantNotificationsRealtime.notifyTenant(tenant.id, { id: saved.id });
-    await this.fcmPush.notifyTenant(tenant.id, headline, params.noticeBody, {
-      kind: 'rent_renewal',
-      notificationId: saved.id,
-    });
-    this.logger.log(
-      `Rent renewal in-app + push dispatched for tenantId=${tenant.id} notificationId=${saved.id}`,
-    );
 
     const mail = await this.rentRenewalMailService.sendRentRenewalNoticeEmail({
       to: tenant.email,
@@ -258,10 +246,6 @@ export class TenantNotificationsService {
     const saved = await this.notificationsRepository.save(row);
     this.tenantNotificationsRealtime.notifyTenant(params.tenantId, {
       id: saved.id,
-    });
-    void this.fcmPush.notifyTenant(params.tenantId, headline, body, {
-      kind: 'maintenance_status',
-      notificationId: saved.id,
     });
     return { id: saved.id };
   }
@@ -334,90 +318,11 @@ export class TenantNotificationsService {
       this.tenantNotificationsRealtime.notifyTenant(t.id, {});
     }
 
-    void this.fcmPush.notifyTenantsMulticast(
-      tenants.map((t) => t.id),
-      headline,
-      body,
-      {
-        kind: 'property_broadcast',
-        broadcastId,
-      },
-    );
-
     return {
       broadcastId,
       tenantCount: tenants.length,
       createdAt,
     };
-  }
-
-  /**
-   * Manager-created task: in-app row + socket + push (Expo + native FCM) per tenant.
-   */
-  async createManagerTaskNotificationsForTenants(params: {
-    tenantIds: string[];
-    headline: string;
-    body: string;
-  }): Promise<{ notified: number }> {
-    const unique = [...new Set(params.tenantIds)];
-    let notified = 0;
-    for (const tenantId of unique) {
-      const row = this.notificationsRepository.create({
-        tenantId,
-        kind: 'manager_task',
-        headline: params.headline.slice(0, 280),
-        body: params.body.slice(0, 4000),
-        isRead: false,
-        renewalMonthlyRentDisplay: null,
-        renewalEffectiveDate: null,
-      });
-      const saved = await this.notificationsRepository.save(row);
-      this.tenantNotificationsRealtime.notifyTenant(tenantId, { id: saved.id });
-      void this.fcmPush.notifyTenant(tenantId, params.headline, params.body, {
-        kind: 'manager_task',
-        notificationId: saved.id,
-      });
-      notified += 1;
-    }
-    return { notified };
-  }
-
-  /**
-   * After a manager saves service charge lines for a property: in-app row + socket
-   * (`notifications:updated`) + push per affected tenant.
-   */
-  async createServiceChargeNotificationsForTenants(params: {
-    tenantIds: string[];
-    propertyName: string;
-  }): Promise<{ notified: number }> {
-    const unique = [...new Set(params.tenantIds)];
-    const name = params.propertyName.trim() || 'your building';
-    const headline = 'Service charges updated';
-    const body =
-      `Your property manager updated fees for ${name}. Open Service charges on your dashboard to review the line items.`.slice(
-        0,
-        4000,
-      );
-    let notified = 0;
-    for (const tenantId of unique) {
-      const row = this.notificationsRepository.create({
-        tenantId,
-        kind: 'service_charges',
-        headline: headline.slice(0, 280),
-        body,
-        isRead: false,
-        renewalMonthlyRentDisplay: null,
-        renewalEffectiveDate: null,
-      });
-      const saved = await this.notificationsRepository.save(row);
-      this.tenantNotificationsRealtime.notifyTenant(tenantId, { id: saved.id });
-      await this.fcmPush.notifyTenant(tenantId, headline, body, {
-        kind: 'service_charges',
-        notificationId: saved.id,
-      });
-      notified += 1;
-    }
-    return { notified };
   }
 
   async listPropertyBroadcastsForManager(
@@ -463,34 +368,22 @@ export class TenantNotificationsService {
     }
   }
 
-  /** Unit + property from manager onboarding (`POST /api/managers/tenants` → `profile`), plus `fullName` from `users`. */
+  /** Unit + property from manager onboarding (`POST /api/managers/tenants` → `profile`). */
   async getTenantProfileSummary(
     tenantId: string,
-  ): Promise<{
-    unitNumber: string | null;
-    propertyAssigned: string | null;
-    fullName: string | null;
-  }> {
-    const [tp, user] = await Promise.all([
-      this.tenantProfileRepository.findOne({
-        where: { userId: tenantId },
-      }),
-      this.usersRepository.findOne({
-        where: { id: tenantId },
-        select: ['id', 'fullName'],
-      }),
-    ]);
+  ): Promise<{ unitNumber: string | null; propertyAssigned: string | null }> {
+    const tp = await this.tenantProfileRepository.findOne({
+      where: { userId: tenantId },
+    });
     const profile =
       tp?.profileData &&
       typeof tp.profileData === 'object' &&
       !Array.isArray(tp.profileData)
         ? (tp.profileData as Record<string, unknown>)
         : undefined;
-    const full = user?.fullName?.trim();
     return {
       unitNumber: strFromProfile(profile, 'unitNumber'),
       propertyAssigned: strFromProfile(profile, 'propertyAssigned'),
-      fullName: full && full.length > 0 ? full : null,
     };
   }
 
@@ -539,6 +432,59 @@ export class TenantNotificationsService {
       effectiveDate: null,
       source: 'none',
     };
+  }
+
+  /** In-app alerts when a manager posts a task to selected tenants (or full roster). */
+  async createManagerTaskNotificationsForTenants(params: {
+    tenantIds: string[];
+    headline: string;
+    body: string;
+  }): Promise<{ notified: number }> {
+    const headline = params.headline.trim().slice(0, 280);
+    const body = params.body.trim();
+    let notified = 0;
+    for (const tenantId of params.tenantIds) {
+      const row = this.notificationsRepository.create({
+        tenantId,
+        kind: 'manager_task',
+        headline,
+        body,
+        isRead: false,
+        renewalMonthlyRentDisplay: null,
+        renewalEffectiveDate: null,
+      });
+      const saved = await this.notificationsRepository.save(row);
+      this.tenantNotificationsRealtime.notifyTenant(tenantId, { id: saved.id });
+      notified += 1;
+    }
+    return { notified };
+  }
+
+  /** In-app alerts when service charge lines are published/updated for a building. */
+  async createServiceChargeNotificationsForTenants(params: {
+    tenantIds: string[];
+    propertyName: string;
+  }): Promise<void> {
+    const name = params.propertyName.trim() || 'your building';
+    const headline = `Service charges · ${name}`.slice(0, 280);
+    const body = [
+      `Your property manager updated building service charges for ${name}.`,
+      '',
+      `Open Service charge on your tenant dashboard to review line items and the total.`,
+    ].join('\n');
+    for (const tenantId of params.tenantIds) {
+      const row = this.notificationsRepository.create({
+        tenantId,
+        kind: 'service_charges',
+        headline,
+        body,
+        isRead: false,
+        renewalMonthlyRentDisplay: null,
+        renewalEffectiveDate: null,
+      });
+      const saved = await this.notificationsRepository.save(row);
+      this.tenantNotificationsRealtime.notifyTenant(tenantId, { id: saved.id });
+    }
   }
 
   private normalizePgDate(value: unknown): string | null {

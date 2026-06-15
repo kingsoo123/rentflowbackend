@@ -3,6 +3,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   MaxLength,
   Min,
@@ -19,7 +20,7 @@ export class ListManagersTenantsQueryDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(50)
+  @Max(100)
   limit = 10;
 
   @IsOptional()
@@ -34,4 +35,10 @@ export class ListManagersTenantsQueryDto {
   @MaxLength(200)
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   property?: string;
+
+  /** When set, only tenants assigned to this managed property (by exact name match) are returned. */
+  @IsOptional()
+  @IsUUID('4')
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  propertyId?: string;
 }

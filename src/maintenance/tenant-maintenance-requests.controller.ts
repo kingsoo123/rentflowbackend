@@ -33,7 +33,7 @@ function resolvePublicBaseUrl(req: Request): string {
   const xfProto = req.headers['x-forwarded-proto'];
   const proto =
     typeof xfProto === 'string' ? xfProto.split(',')[0]?.trim() || 'http' : 'http';
-  const host = req.get('host') ?? 'localhost:3001';
+  const host = req.get('host') ?? `localhost:${process.env.PORT ?? '3002'}`;
   return `${proto}://${host}`;
 }
 

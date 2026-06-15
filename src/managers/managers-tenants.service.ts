@@ -21,6 +21,14 @@ export type TenantListItem = {
   propertyAssigned: string | null;
   unitNumber: string | null;
   rentAmount: string | null;
+  /** Latest `rent_renewal` notice effective date (YYYY-MM-DD) when set. */
+  renewalEffectiveDate: string | null;
+  /** Latest `rent_renewal` proposed rent display when set. */
+  renewalMonthlyRentDisplay: string | null;
+  /** Manager-facing summary (profile override or heuristic). */
+  rentPaymentStatusLabel: string;
+  /** Whether building-level service charge lines exist for the assigned property. */
+  serviceChargePaymentStatusLabel: string;
 };
 
 export type TenantsListResult = {
@@ -132,26 +140,6 @@ export class ManagersTenantsService {
     await this.validatePropertyAssignedForManager(managerUserId, s);
   }
 
-  /**
-   * Property manager user ids whose occupancy roster includes this tenant
-   * (same `propertyAssigned` ↔ `properties.name` rules as `GET /api/managers/tenants`).
-   */
-  async listManagerUserIdsForTenantOnRoster(tenantId: string): Promise<string[]> {
-    const rows = await this.propertyRepository
-      .createQueryBuilder('p')
-      .select('p.manager_user_id', 'managerUserId')
-      .distinct(true)
-      .innerJoin(TenantProfile, 'tp', 'tp.user_id = :tenantId', { tenantId })
-      .innerJoin(User, 'u', 'u.id = tp.user_id AND u.role = :role', {
-        role: UserRole.TENANT,
-      })
-      .where(
-        `LOWER(TRIM(COALESCE(tp.profile_data->>'propertyAssigned',''))) = LOWER(TRIM(p.name))`,
-      )
-      .getRawMany<{ managerUserId: string }>();
-    return rows.map((r) => r.managerUserId).filter(Boolean);
-  }
-
   async assertTenantBelongsToManager(
     managerUserId: string,
     tenantUserId: string,
@@ -175,28 +163,46 @@ export class ManagersTenantsService {
     }
   }
 
-  /** Distinct tenant user ids on this manager’s occupancy roster (same rules as `GET /api/managers/tenants`). */
+  /**
+   * Property manager user IDs who have this tenant on their roster (assigned property name
+   * matches one of their `properties` rows).
+   */
+  async listManagerUserIdsForTenantOnRoster(tenantUserId: string): Promise<string[]> {
+    const rows = await this.propertyRepository.query<Array<{ mid: string }>>(
+      `SELECT DISTINCT p.manager_user_id AS mid
+       FROM users u
+       INNER JOIN tenant_profiles tp ON tp.user_id = u.id
+       INNER JOIN properties p
+         ON LOWER(TRIM(p.name)) = LOWER(TRIM(COALESCE(tp.profile_data->>'propertyAssigned', '')))
+       WHERE u.id = $1 AND u.role = $2`,
+      [tenantUserId, UserRole.TENANT],
+    );
+    return rows.map((r) => r.mid).filter((x): x is string => Boolean(x));
+  }
+
+  /**
+   * Tenant user IDs on this manager's occupancy roster (same scope as `GET /api/managers/tenants`).
+   */
   async listTenantIdsOnManagerRoster(
     managerUserId: string,
-    limit = 200,
+    max: number,
   ): Promise<string[]> {
-    const rows = await this.usersRepository
-      .createQueryBuilder('u')
-      .select('u.id', 'id')
-      .leftJoin(TenantProfile, 'tp', 'tp.userId = u.id')
-      .where('u.role = :role', { role: UserRole.TENANT })
-      .andWhere(
-        `EXISTS (
-          SELECT 1 FROM properties p
-          WHERE p.manager_user_id = :managerUserId
-            AND LOWER(TRIM(COALESCE(tp.profile_data->>'propertyAssigned',''))) = LOWER(TRIM(p.name))
-        )`,
-        { managerUserId },
-      )
-      .orderBy('u.createdAt', 'DESC')
-      .take(limit)
-      .getRawMany<{ id: string }>();
-    return rows.map((r) => r.id).filter(Boolean);
+    const take = Math.min(Math.max(1, max), 500);
+    const rows = await this.usersRepository.query<Array<{ id: string }>>(
+      `SELECT u.id
+       FROM users u
+       LEFT JOIN tenant_profiles tp ON tp.user_id = u.id
+       WHERE u.role = $2
+         AND EXISTS (
+           SELECT 1 FROM properties p
+           WHERE p.manager_user_id = $1::uuid
+             AND LOWER(TRIM(COALESCE(tp.profile_data->>'propertyAssigned',''))) = LOWER(TRIM(p.name))
+         )
+       ORDER BY u.created_at DESC
+       LIMIT $3`,
+      [managerUserId, UserRole.TENANT, take],
+    );
+    return rows.map((r) => r.id);
   }
 
   /**
@@ -228,6 +234,11 @@ export class ManagersTenantsService {
     const limit = query.limit ?? 10;
     const search = query.search?.trim();
     const property = query.property?.trim();
+    const propertyId = query.propertyId?.trim();
+
+    if (propertyId && property) {
+      throw new BadRequestException('Use either propertyId or property, not both.');
+    }
 
     const qb = this.usersRepository
       .createQueryBuilder('u')
@@ -242,6 +253,25 @@ export class ManagersTenantsService {
         { managerUserId },
       );
 
+    if (propertyId) {
+      const propRow = await this.propertyRepository.findOne({
+        where: { id: propertyId, managerUserId },
+      });
+      if (!propRow) {
+        throw new NotFoundException('Property not found');
+      }
+      qb.andWhere(
+        `LOWER(TRIM(COALESCE(tp.profile_data->>'propertyAssigned',''))) = LOWER(TRIM(:_propName))`,
+        { _propName: propRow.name },
+      );
+    } else if (property) {
+      const prop = `%${escapeIlike(property)}%`;
+      qb.andWhere(
+        `COALESCE(tp.profile_data->>'propertyAssigned','') ILIKE :prop ESCAPE '\\'`,
+        { prop },
+      );
+    }
+
     if (search) {
       const term = `%${escapeIlike(search)}%`;
       qb.andWhere(
@@ -250,31 +280,58 @@ export class ManagersTenantsService {
       );
     }
 
-    if (property) {
-      const prop = `%${escapeIlike(property)}%`;
-      qb.andWhere(
-        `COALESCE(tp.profile_data->>'propertyAssigned','') ILIKE :prop ESCAPE '\\'`,
-        { prop },
-      );
-    }
-
     const total = await qb.clone().getCount();
 
-    const rows = await qb
+    const rowQb = qb
       .clone()
       .select('u.id', 'id')
       .addSelect('u.email', 'email')
       .addSelect('u.fullName', 'fullName')
       .addSelect('tp.profile_data', 'profileData')
+      .addSelect(
+        `(
+          SELECT TO_CHAR(tn.renewal_effective_date, 'YYYY-MM-DD')
+          FROM tenant_notifications tn
+          WHERE tn.tenant_id = u.id AND tn.kind = 'rent_renewal'
+          ORDER BY tn.created_at DESC
+          LIMIT 1
+        )`,
+        'renewal_effective_date',
+      )
+      .addSelect(
+        `(
+          SELECT tn.renewal_monthly_rent_display
+          FROM tenant_notifications tn
+          WHERE tn.tenant_id = u.id AND tn.kind = 'rent_renewal'
+          ORDER BY tn.created_at DESC
+          LIMIT 1
+        )`,
+        'renewal_monthly_rent_display',
+      )
+      .addSelect(
+        `(
+          SELECT EXISTS (
+            SELECT 1 FROM service_charge_lines scl
+            INNER JOIN properties p2 ON p2.id = scl.property_id
+            WHERE p2.manager_user_id = :managerUserId
+              AND LOWER(TRIM(p2.name)) = LOWER(TRIM(COALESCE(tp.profile_data->>'propertyAssigned','')))
+          )
+        )`,
+        'building_has_service_charges',
+      )
       .orderBy('u.createdAt', 'DESC')
       .skip((page - 1) * limit)
-      .take(limit)
-      .getRawMany<{
-        id: string;
-        email: string;
-        fullName: string;
-        profileData: Record<string, unknown> | string | null;
-      }>();
+      .take(limit);
+
+    const rows = await rowQb.getRawMany<{
+      id: string;
+      email: string;
+      fullName: string;
+      profileData: Record<string, unknown> | string | null;
+      renewal_effective_date: string | null;
+      renewal_monthly_rent_display: string | null;
+      building_has_service_charges: boolean | string | number | null;
+    }>();
 
     const items: TenantListItem[] = rows.map((r) => {
       let profile: unknown = r.profileData;
@@ -285,6 +342,30 @@ export class ManagersTenantsService {
           profile = {};
         }
       }
+      const rentOverride = strFromProfile(profile, 'rentPaymentStatus');
+      const rentAmount = strFromProfile(profile, 'rentAmount');
+      const rentPaymentStatusLabel =
+        rentOverride ??
+        (rentAmount ? 'Rent on file (payments not tracked in app)' : 'No rent on file');
+
+      const hasSc =
+        r.building_has_service_charges === true ||
+        r.building_has_service_charges === 1 ||
+        r.building_has_service_charges === '1' ||
+        String(r.building_has_service_charges).toLowerCase() === 'true';
+      const serviceChargePaymentStatusLabel = hasSc
+        ? 'Building charges published — confirm with resident'
+        : 'No service charge statement for this building yet';
+
+      const renewalEffectiveDate =
+        typeof r.renewal_effective_date === 'string' && r.renewal_effective_date.trim()
+          ? r.renewal_effective_date.trim().slice(0, 10)
+          : null;
+      const renewalMonthlyRentDisplay =
+        typeof r.renewal_monthly_rent_display === 'string' && r.renewal_monthly_rent_display.trim()
+          ? r.renewal_monthly_rent_display.trim()
+          : null;
+
       return {
         id: r.id,
         fullName: r.fullName,
@@ -292,7 +373,11 @@ export class ManagersTenantsService {
         phone: strFromProfile(profile, 'phone'),
         propertyAssigned: strFromProfile(profile, 'propertyAssigned'),
         unitNumber: strFromProfile(profile, 'unitNumber'),
-        rentAmount: strFromProfile(profile, 'rentAmount'),
+        rentAmount,
+        renewalEffectiveDate,
+        renewalMonthlyRentDisplay,
+        rentPaymentStatusLabel,
+        serviceChargePaymentStatusLabel,
       };
     });
 
