@@ -53,4 +53,36 @@ export class UpdatePropertyDto {
     typeof value === 'string' ? value.trim() : value === undefined ? undefined : String(value),
   )
   country?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim() : value === undefined ? undefined : String(value),
+  )
+  collectionBankName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim() : value === undefined ? undefined : String(value),
+  )
+  collectionAccountName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim() : value === undefined ? undefined : String(value),
+  )
+  collectionAccountNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(4000)
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim() : value === undefined ? undefined : String(value),
+  )
+  collectionPaymentInstructions?: string;
 }

@@ -11,8 +11,10 @@ import { User } from '../users/user.entity';
 import { UserRole } from '../users/user-role.enum';
 import { TenantNotificationsRealtimeService } from '../tenant-notifications/tenant-notifications-realtime.service';
 import { TenantNotificationsService } from '../tenant-notifications/tenant-notifications.service';
+import { MaintenanceRealtimeService } from '../maintenance/maintenance-realtime.service';
 import type { PutServiceChargesDto } from './dto/put-service-charges.dto';
 import { ServiceChargeLine } from './service-charge-line.entity';
+import { isServiceChargeAmountVisible } from './service-charge-publish';
 
 export type ServiceChargeLineRow = {
   id: string;
@@ -38,6 +40,7 @@ export class ServiceChargesService {
     private readonly propertyRepository: Repository<Property>,
     private readonly tenantNotificationsRealtime: TenantNotificationsRealtimeService,
     private readonly tenantNotifications: TenantNotificationsService,
+    private readonly maintenanceRealtime: MaintenanceRealtimeService,
   ) {}
 
   private async assertPropertyOwnedByManager(
@@ -136,6 +139,7 @@ export class ServiceChargesService {
     for (const tenantId of tenantIds) {
       this.tenantNotificationsRealtime.notifyServiceChargesUpdated(tenantId);
     }
+    this.maintenanceRealtime.notifyRevenueUpdated(managerUserId);
 
     return this.listForProperty(managerUserId, propertyId);
   }
@@ -189,10 +193,25 @@ export class ServiceChargesService {
   async listForTenant(tenantId: string): Promise<{
     propertyName: string | null;
     lines: ServiceChargeLineRow[];
+    source: 'active' | 'paid_current_month' | 'before_publish_day';
   }> {
     const prop = await this.findPropertyForTenant(tenantId);
     if (!prop) {
-      return { propertyName: null, lines: [] };
+      return { propertyName: null, lines: [], source: 'active' };
+    }
+    if (await this.tenantNotifications.hasConfirmedServiceChargeForCurrentMonth(tenantId)) {
+      return {
+        propertyName: prop.name,
+        lines: [],
+        source: 'paid_current_month',
+      };
+    }
+    if (!isServiceChargeAmountVisible()) {
+      return {
+        propertyName: prop.name,
+        lines: [],
+        source: 'before_publish_day',
+      };
     }
     try {
       const rows = await this.lineRepository.find({
@@ -202,6 +221,7 @@ export class ServiceChargesService {
       return {
         propertyName: prop.name,
         lines: rows.map((r) => this.mapLine(r)),
+        source: 'active',
       };
     } catch (error) {
       this.rethrowIfMissingServiceChargeTable(error);

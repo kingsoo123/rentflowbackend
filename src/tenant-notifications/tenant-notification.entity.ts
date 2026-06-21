@@ -8,6 +8,7 @@ import {
 } from 'typeorm';
 import { User } from '../users/user.entity';
 import { PropertyBroadcast } from './property-broadcast.entity';
+import { TenantPaymentConfirmation } from '../payment-confirmations/tenant-payment-confirmation.entity';
 
 @Entity('tenant_notifications')
 export class TenantNotification {
@@ -57,4 +58,12 @@ export class TenantNotification {
   @ManyToOne(() => PropertyBroadcast, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'broadcast_id' })
   broadcast: PropertyBroadcast | null;
+
+  /** Set when kind is `payment_received` — links to downloadable receipt PDF. */
+  @Column({ name: 'payment_confirmation_id', type: 'uuid', nullable: true })
+  paymentConfirmationId: string | null;
+
+  @ManyToOne(() => TenantPaymentConfirmation, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'payment_confirmation_id' })
+  paymentConfirmation: TenantPaymentConfirmation | null;
 }

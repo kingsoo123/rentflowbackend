@@ -5,7 +5,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { FirebaseModule } from '../firebase/firebase.module';
 import { ManagersModule } from '../managers/managers.module';
-import { MaintenanceModule } from '../maintenance/maintenance.module';
+import { MaintenanceRealtimeModule } from '../maintenance/maintenance-realtime.module';
 import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
 import { LeaseFormPdfService } from './lease-form-pdf.service';
@@ -19,7 +19,7 @@ import { TenantLeaseFormsService } from './tenant-lease-forms.service';
     TypeOrmModule.forFeature([TenantLeaseFormSubmission, User, TenantProfile]),
     AuthModule,
     ManagersModule,
-    MaintenanceModule,
+    MaintenanceRealtimeModule,
     FirebaseModule,
   ],
   controllers: [TenantLeaseFormsController, ManagersLeaseFormsController],

@@ -5,10 +5,17 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { ListManagersTenantsQueryDto } from './dto/list-managers-tenants.query.dto';
 import type { PatchTenantDto } from './dto/patch-tenant.dto';
 import { Property } from '../properties/property.entity';
+import { PaymentConfirmationStatus } from '../payment-confirmations/payment-confirmation-status.enum';
+import { PaymentType } from '../payment-confirmations/payment-type.enum';
+import { TenantPaymentConfirmation } from '../payment-confirmations/tenant-payment-confirmation.entity';
+import { isServiceChargeAmountVisible } from '../service-charges/service-charge-publish';
+import { ServiceChargeLine } from '../service-charges/service-charge-line.entity';
+import { TenantNotification } from '../tenant-notifications/tenant-notification.entity';
+import { mergeRenewalSummaryFromNotices } from '../tenant-notifications/renewal-rent-display';
 import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
 import { UserRole } from '../users/user-role.enum';
@@ -21,6 +28,10 @@ export type TenantListItem = {
   propertyAssigned: string | null;
   unitNumber: string | null;
   rentAmount: string | null;
+  renewalEffectiveDate: string | null;
+  renewalMonthlyRentDisplay: string | null;
+  rentPaymentStatusLabel: string;
+  serviceChargePaymentStatusLabel: string;
 };
 
 export type TenantsListResult = {
@@ -94,6 +105,12 @@ export class ManagersTenantsService {
     private readonly tenantProfileRepository: Repository<TenantProfile>,
     @InjectRepository(Property)
     private readonly propertyRepository: Repository<Property>,
+    @InjectRepository(TenantNotification)
+    private readonly notificationsRepository: Repository<TenantNotification>,
+    @InjectRepository(TenantPaymentConfirmation)
+    private readonly paymentConfirmationsRepository: Repository<TenantPaymentConfirmation>,
+    @InjectRepository(ServiceChargeLine)
+    private readonly serviceChargeLineRepository: Repository<ServiceChargeLine>,
   ) {}
 
   /**
@@ -228,6 +245,18 @@ export class ManagersTenantsService {
     const limit = query.limit ?? 10;
     const search = query.search?.trim();
     const property = query.property?.trim();
+    const propertyId = query.propertyId?.trim();
+    let propertyFilterName: string | null = null;
+    if (propertyId) {
+      const owned = await this.propertyRepository.findOne({
+        where: { id: propertyId, managerUserId },
+        select: ['id', 'name'],
+      });
+      if (!owned) {
+        return { items: [], total: 0, page, limit, totalPages: 1 };
+      }
+      propertyFilterName = owned.name;
+    }
 
     const qb = this.usersRepository
       .createQueryBuilder('u')
@@ -258,6 +287,13 @@ export class ManagersTenantsService {
       );
     }
 
+    if (propertyFilterName) {
+      qb.andWhere(
+        `LOWER(TRIM(COALESCE(tp.profile_data->>'propertyAssigned',''))) = LOWER(TRIM(:exactPropName))`,
+        { exactPropName: propertyFilterName },
+      );
+    }
+
     const total = await qb.clone().getCount();
 
     const rows = await qb
@@ -276,7 +312,7 @@ export class ManagersTenantsService {
         profileData: Record<string, unknown> | string | null;
       }>();
 
-    const items: TenantListItem[] = rows.map((r) => {
+    const baseItems = rows.map((r) => {
       let profile: unknown = r.profileData;
       if (typeof profile === 'string') {
         try {
@@ -293,8 +329,14 @@ export class ManagersTenantsService {
         propertyAssigned: strFromProfile(profile, 'propertyAssigned'),
         unitNumber: strFromProfile(profile, 'unitNumber'),
         rentAmount: strFromProfile(profile, 'rentAmount'),
+        renewalEffectiveDate: null as string | null,
+        renewalMonthlyRentDisplay: null as string | null,
+        rentPaymentStatusLabel: '—',
+        serviceChargePaymentStatusLabel: '—',
       };
     });
+
+    const items = await this.enrichTenantListItems(managerUserId, baseItems);
 
     const totalPages = Math.max(1, Math.ceil(total / limit));
 
@@ -417,5 +459,141 @@ export class ManagersTenantsService {
     }
 
     return this.getTenantDetail(managerUserId, id);
+  }
+
+  private normalizeRenewalDate(value: unknown): string | null {
+    if (value == null) {
+      return null;
+    }
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      return value.toISOString().slice(0, 10);
+    }
+    const s = String(value).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      return s;
+    }
+    return null;
+  }
+
+  private async enrichTenantListItems(
+    managerUserId: string,
+    items: TenantListItem[],
+  ): Promise<TenantListItem[]> {
+    if (items.length === 0) {
+      return items;
+    }
+
+    const tenantIds = items.map((i) => i.id);
+
+    const renewalRows = await this.notificationsRepository.find({
+      where: { tenantId: In(tenantIds), kind: 'rent_renewal' },
+      order: { createdAt: 'DESC' },
+      select: [
+        'tenantId',
+        'renewalMonthlyRentDisplay',
+        'renewalEffectiveDate',
+        'body',
+      ],
+    });
+    const renewalByTenant = new Map<
+      string,
+      { renewalMonthlyRentDisplay: string | null; renewalEffectiveDate: string | null }
+    >();
+    const rowsByTenant = new Map<string, typeof renewalRows>();
+    for (const row of renewalRows) {
+      const list = rowsByTenant.get(row.tenantId) ?? [];
+      list.push(row);
+      rowsByTenant.set(row.tenantId, list);
+    }
+    for (const [tenantId, rows] of rowsByTenant) {
+      renewalByTenant.set(
+        tenantId,
+        mergeRenewalSummaryFromNotices(rows, (value) =>
+          this.normalizeRenewalDate(value),
+        ),
+      );
+    }
+
+    const rentConfirmedRows = await this.paymentConfirmationsRepository
+      .createQueryBuilder('pc')
+      .select('pc.tenant_id', 'tenantId')
+      .where('pc.tenant_id IN (:...tenantIds)', { tenantIds })
+      .andWhere('pc.payment_type = :paymentType', { paymentType: PaymentType.RENT })
+      .andWhere('pc.status = :status', { status: PaymentConfirmationStatus.CONFIRMED })
+      .andWhere('pc.confirmed_at IS NOT NULL')
+      .andWhere(`date_trunc('month', pc.confirmed_at) = date_trunc('month', now())`)
+      .getRawMany<{ tenantId: string }>();
+    const rentConfirmed = new Set(rentConfirmedRows.map((r) => r.tenantId));
+
+    const scConfirmedRows = await this.paymentConfirmationsRepository
+      .createQueryBuilder('pc')
+      .select('pc.tenant_id', 'tenantId')
+      .where('pc.tenant_id IN (:...tenantIds)', { tenantIds })
+      .andWhere('pc.payment_type = :paymentType', {
+        paymentType: PaymentType.SERVICE_CHARGE,
+      })
+      .andWhere('pc.status = :status', { status: PaymentConfirmationStatus.CONFIRMED })
+      .andWhere('pc.confirmed_at IS NOT NULL')
+      .andWhere(`date_trunc('month', pc.confirmed_at) = date_trunc('month', now())`)
+      .getRawMany<{ tenantId: string }>();
+    const scConfirmed = new Set(scConfirmedRows.map((r) => r.tenantId));
+
+    const propertyNames = [
+      ...new Set(
+        items
+          .map((i) => i.propertyAssigned?.trim().toLowerCase())
+          .filter((n): n is string => Boolean(n)),
+      ),
+    ];
+    const lineCountByProperty = new Map<string, number>();
+    if (propertyNames.length > 0) {
+      const lineRows = await this.serviceChargeLineRepository
+        .createQueryBuilder('scl')
+        .innerJoin(Property, 'p', 'p.id = scl.property_id')
+        .select('LOWER(TRIM(p.name))', 'propertyName')
+        .addSelect('COUNT(scl.id)', 'lineCount')
+        .where('p.manager_user_id = :managerUserId', { managerUserId })
+        .andWhere('LOWER(TRIM(p.name)) IN (:...propertyNames)', { propertyNames })
+        .groupBy('LOWER(TRIM(p.name))')
+        .getRawMany<{ propertyName: string; lineCount: string }>();
+      for (const row of lineRows) {
+        const count = Number.parseInt(row.lineCount, 10);
+        lineCountByProperty.set(row.propertyName, Number.isFinite(count) ? count : 0);
+      }
+    }
+
+    const chargesVisible = isServiceChargeAmountVisible();
+
+    return items.map((item) => {
+      const renewal = renewalByTenant.get(item.id);
+      const renewalMonthlyRentDisplay = renewal?.renewalMonthlyRentDisplay ?? null;
+      const renewalEffectiveDate = renewal?.renewalEffectiveDate ?? null;
+
+      let rentPaymentStatusLabel = 'Not on file';
+      if (rentConfirmed.has(item.id)) {
+        rentPaymentStatusLabel = 'Paid this month';
+      } else if (renewalMonthlyRentDisplay || item.rentAmount) {
+        rentPaymentStatusLabel = 'Due';
+      }
+
+      const propKey = item.propertyAssigned?.trim().toLowerCase() ?? '';
+      const lineCount = propKey ? lineCountByProperty.get(propKey) ?? 0 : 0;
+      let serviceChargePaymentStatusLabel = 'Not published';
+      if (scConfirmed.has(item.id)) {
+        serviceChargePaymentStatusLabel = 'Paid this month';
+      } else if (lineCount > 0) {
+        serviceChargePaymentStatusLabel = chargesVisible
+          ? 'Due'
+          : 'Publishes on the 25th';
+      }
+
+      return {
+        ...item,
+        renewalMonthlyRentDisplay,
+        renewalEffectiveDate,
+        rentPaymentStatusLabel,
+        serviceChargePaymentStatusLabel,
+      };
+    });
   }
 }

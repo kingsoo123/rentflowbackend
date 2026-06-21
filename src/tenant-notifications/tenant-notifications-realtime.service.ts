@@ -27,6 +27,12 @@ export class TenantNotificationsRealtimeService {
     const room = tenantNotificationsRoom(tenantId);
     this.namespace?.to(room).emit('service-charges:updated', {});
   }
+
+  /** Tell tenant clients to refetch rent, service charges, balance, and payment history. */
+  notifyBalancesUpdated(tenantId: string): void {
+    const room = tenantNotificationsRoom(tenantId);
+    this.namespace?.to(room).emit('balances:updated', {});
+  }
 }
 
 export function tenantNotificationsRoom(tenantId: string): string {

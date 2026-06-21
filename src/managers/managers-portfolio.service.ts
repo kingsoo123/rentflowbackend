@@ -22,6 +22,10 @@ export type ManagerPropertyDetail = {
   stateRegion: string | null;
   postalCode: string | null;
   country: string | null;
+  collectionBankName: string | null;
+  collectionAccountName: string | null;
+  collectionAccountNumber: string | null;
+  collectionPaymentInstructions: string | null;
   createdAt: string;
 };
 
@@ -76,6 +80,10 @@ export class ManagersPortfolioService {
       stateRegion: p.stateRegion,
       postalCode: p.postalCode,
       country: p.country,
+      collectionBankName: p.collectionBankName,
+      collectionAccountName: p.collectionAccountName,
+      collectionAccountNumber: p.collectionAccountNumber,
+      collectionPaymentInstructions: p.collectionPaymentInstructions,
       createdAt: p.createdAt.toISOString(),
     };
   }
@@ -155,7 +163,11 @@ export class ManagersPortfolioService {
       dto.city !== undefined ||
       dto.stateRegion !== undefined ||
       dto.postalCode !== undefined ||
-      dto.country !== undefined;
+      dto.country !== undefined ||
+      dto.collectionBankName !== undefined ||
+      dto.collectionAccountName !== undefined ||
+      dto.collectionAccountNumber !== undefined ||
+      dto.collectionPaymentInstructions !== undefined;
     if (!hasAny) {
       throw new BadRequestException('No updates provided');
     }
@@ -176,6 +188,18 @@ export class ManagersPortfolioService {
     }
     if (dto.country !== undefined) {
       row.country = emptyToNull(dto.country);
+    }
+    if (dto.collectionBankName !== undefined) {
+      row.collectionBankName = emptyToNull(dto.collectionBankName);
+    }
+    if (dto.collectionAccountName !== undefined) {
+      row.collectionAccountName = emptyToNull(dto.collectionAccountName);
+    }
+    if (dto.collectionAccountNumber !== undefined) {
+      row.collectionAccountNumber = emptyToNull(dto.collectionAccountNumber);
+    }
+    if (dto.collectionPaymentInstructions !== undefined) {
+      row.collectionPaymentInstructions = emptyToNull(dto.collectionPaymentInstructions);
     }
     try {
       const saved = await this.propertyRepository.save(row);

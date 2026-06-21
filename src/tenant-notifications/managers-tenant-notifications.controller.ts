@@ -55,7 +55,7 @@ export class ManagersTenantNotificationsController {
 
   @Post('rent-renewal')
   @Roles(UserRole.PROPERTY_MANAGER)
-  async sendRentRenewal(@Body() dto: SendRentRenewalNoticeDto) {
+  async sendRentRenewal(@Req() req: AuthedRequest, @Body() dto: SendRentRenewalNoticeDto) {
     const tenantEmails = mergeRentRenewalRecipientEmails(dto);
     if (tenantEmails.length === 0) {
       throw new BadRequestException(
@@ -68,6 +68,7 @@ export class ManagersTenantNotificationsController {
       );
     }
     const result = await this.tenantNotificationsService.sendRentRenewalNotices({
+      managerUserId: req.user.sub,
       tenantEmails,
       noticeBody: dto.noticeBody,
       headline: dto.headline,

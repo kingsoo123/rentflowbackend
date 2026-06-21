@@ -14,6 +14,7 @@ import { TenantNotificationsModule } from './tenant-notifications/tenant-notific
 import { ServiceChargesModule } from './service-charges/service-charges.module';
 import { DevicePushTokensModule } from './device-push-tokens/device-push-tokens.module';
 import { FirebaseModule } from './firebase/firebase.module';
+import { PaymentConfirmationsModule } from './payment-confirmations/payment-confirmations.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { FirebaseModule } from './firebase/firebase.module';
     ServiceChargesModule,
     DevicePushTokensModule,
     FirebaseModule,
+    PaymentConfirmationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -9,6 +9,7 @@ import { TenantProfile } from '../users/tenant-profile.entity';
 import { ManagersTenantNotificationsController } from './managers-tenant-notifications.controller';
 import { PropertyBroadcast } from './property-broadcast.entity';
 import { TenantNotification } from './tenant-notification.entity';
+import { TenantPaymentConfirmation } from '../payment-confirmations/tenant-payment-confirmation.entity';
 import { TenantNotificationsController } from './tenant-notifications.controller';
 import { TenantNotificationsRealtimeGateway } from './tenant-notifications-realtime.gateway';
 import { TenantNotificationsRealtimeService } from './tenant-notifications-realtime.service';
@@ -16,16 +17,19 @@ import { TenantNotificationsService } from './tenant-notifications.service';
 import { TenantsProfileController } from './tenants-profile.controller';
 import { TenantsUpcomingRentController } from './tenants-upcoming-rent.controller';
 import { FirebaseModule } from '../firebase/firebase.module';
+import { MaintenanceRealtimeModule } from '../maintenance/maintenance-realtime.module';
 
 @Module({
   imports: [
     AuthModule,
     FirebaseModule,
+    MaintenanceRealtimeModule,
     TypeOrmModule.forFeature([
       TenantNotification,
       PropertyBroadcast,
       User,
       TenantProfile,
+      TenantPaymentConfirmation,
     ]),
   ],
   controllers: [

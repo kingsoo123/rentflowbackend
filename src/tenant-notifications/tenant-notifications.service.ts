@@ -14,6 +14,11 @@ import { PropertyBroadcast } from './property-broadcast.entity';
 import { RentRenewalMailService } from '../email/rent-renewal-mail.service';
 import { FcmPushService } from '../firebase/fcm-push.service';
 import { TenantNotificationsRealtimeService } from './tenant-notifications-realtime.service';
+import { mergeRenewalSummaryFromNotices } from './renewal-rent-display';
+import { MaintenanceRealtimeService } from '../maintenance/maintenance-realtime.service';
+import { PaymentConfirmationStatus } from '../payment-confirmations/payment-confirmation-status.enum';
+import { PaymentType } from '../payment-confirmations/payment-type.enum';
+import { TenantPaymentConfirmation } from '../payment-confirmations/tenant-payment-confirmation.entity';
 
 export type TenantNotificationRow = {
   id: string;
@@ -22,12 +27,13 @@ export type TenantNotificationRow = {
   kind: string;
   isRead: boolean;
   createdAt: Date;
+  paymentConfirmationId: string | null;
 };
 
 export type UpcomingRentSummary = {
   monthlyRentDisplay: string | null;
   effectiveDate: string | null;
-  source: 'renewal_notice' | 'profile' | 'none';
+  source: 'renewal_notice' | 'profile' | 'none' | 'paid_current_month';
 };
 
 export type RentRenewalDelivered = {
@@ -98,9 +104,12 @@ export class TenantNotificationsService {
     private readonly usersRepository: Repository<User>,
     @InjectRepository(TenantProfile)
     private readonly tenantProfileRepository: Repository<TenantProfile>,
+    @InjectRepository(TenantPaymentConfirmation)
+    private readonly paymentConfirmationsRepository: Repository<TenantPaymentConfirmation>,
     private readonly tenantNotificationsRealtime: TenantNotificationsRealtimeService,
     private readonly rentRenewalMailService: RentRenewalMailService,
     private readonly fcmPush: FcmPushService,
+    private readonly maintenanceRealtime: MaintenanceRealtimeService,
   ) {}
 
   /**
@@ -108,6 +117,7 @@ export class TenantNotificationsService {
    * Per-email failures (unknown / non-tenant) are collected in `failed`; others still deliver.
    */
   async sendRentRenewalNotices(params: {
+    managerUserId: string;
     tenantEmails: string[];
     noticeBody: string;
     headline?: string;
@@ -143,6 +153,10 @@ export class TenantNotificationsService {
           throw e;
         }
       }
+    }
+
+    if (delivered.length > 0) {
+      this.maintenanceRealtime.notifyRevenueUpdated(params.managerUserId);
     }
 
     return { delivered, failed };
@@ -194,6 +208,7 @@ export class TenantNotificationsService {
     });
     const saved = await this.notificationsRepository.save(row);
     this.tenantNotificationsRealtime.notifyTenant(tenant.id, { id: saved.id });
+    this.tenantNotificationsRealtime.notifyBalancesUpdated(tenant.id);
     await this.fcmPush.notifyTenant(tenant.id, headline, params.noticeBody, {
       kind: 'rent_renewal',
       notificationId: saved.id,
@@ -264,6 +279,87 @@ export class TenantNotificationsService {
       notificationId: saved.id,
     });
     return { id: saved.id };
+  }
+
+  async createPaymentReceivedNotification(
+    tenantId: string,
+    paymentType: PaymentType,
+    amountDisplay: string | null,
+    paymentConfirmationId: string,
+  ): Promise<{ id: string }> {
+    const label = paymentType === PaymentType.SERVICE_CHARGE ? 'Service charge' : 'Rent';
+    const amountSuffix = amountDisplay?.trim() ? ` (${amountDisplay.trim()})` : '';
+    const headline = `${label} payment received${amountSuffix}`;
+    const body = [
+      `Your property manager confirmed that your ${label.toLowerCase()} payment was received.`,
+      amountDisplay?.trim() ? `Amount: ${amountDisplay.trim()}` : '',
+      paymentType === PaymentType.RENT
+        ? 'Your upcoming rent balance for this month is cleared.'
+        : paymentType === PaymentType.SERVICE_CHARGE
+          ? 'Your service charge for this month is cleared.'
+          : '',
+      'Open this notification to download your receipt.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const row = this.notificationsRepository.create({
+      tenantId,
+      kind: 'payment_received',
+      headline: headline.length > 280 ? `${headline.slice(0, 276)}…` : headline,
+      body,
+      isRead: false,
+      renewalMonthlyRentDisplay: null,
+      renewalEffectiveDate: null,
+      paymentConfirmationId,
+    });
+    const saved = await this.notificationsRepository.save(row);
+    this.tenantNotificationsRealtime.notifyTenant(tenantId, { id: saved.id });
+    this.tenantNotificationsRealtime.notifyBalancesUpdated(tenantId);
+    if (paymentType === PaymentType.SERVICE_CHARGE) {
+      this.tenantNotificationsRealtime.notifyServiceChargesUpdated(tenantId);
+    }
+    void this.fcmPush.notifyTenant(tenantId, headline, body, {
+      kind: 'payment_received',
+      notificationId: saved.id,
+      paymentConfirmationId,
+    });
+    return { id: saved.id };
+  }
+
+  private async hasConfirmedRentForCurrentMonth(tenantId: string): Promise<boolean> {
+    try {
+      const count = await this.paymentConfirmationsRepository
+        .createQueryBuilder('pc')
+        .where('pc.tenant_id = :tenantId', { tenantId })
+        .andWhere('pc.payment_type = :paymentType', { paymentType: PaymentType.RENT })
+        .andWhere('pc.status = :status', { status: PaymentConfirmationStatus.CONFIRMED })
+        .andWhere('pc.confirmed_at IS NOT NULL')
+        .andWhere(`date_trunc('month', pc.confirmed_at) = date_trunc('month', now())`)
+        .getCount();
+      return count > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /** True when service charge for the current calendar month has been confirmed by the manager. */
+  async hasConfirmedServiceChargeForCurrentMonth(tenantId: string): Promise<boolean> {
+    try {
+      const count = await this.paymentConfirmationsRepository
+        .createQueryBuilder('pc')
+        .where('pc.tenant_id = :tenantId', { tenantId })
+        .andWhere('pc.payment_type = :paymentType', {
+          paymentType: PaymentType.SERVICE_CHARGE,
+        })
+        .andWhere('pc.status = :status', { status: PaymentConfirmationStatus.CONFIRMED })
+        .andWhere('pc.confirmed_at IS NOT NULL')
+        .andWhere(`date_trunc('month', pc.confirmed_at) = date_trunc('month', now())`)
+        .getCount();
+      return count > 0;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -450,6 +546,7 @@ export class TenantNotificationsService {
       kind: r.kind,
       isRead: r.isRead,
       createdAt: r.createdAt,
+      paymentConfirmationId: r.paymentConfirmationId,
     }));
   }
 
@@ -495,23 +592,34 @@ export class TenantNotificationsService {
   }
 
   async getUpcomingRentSummary(tenantId: string): Promise<UpcomingRentSummary> {
-    const latestRenewal = await this.notificationsRepository.findOne({
+    if (await this.hasConfirmedRentForCurrentMonth(tenantId)) {
+      return {
+        monthlyRentDisplay: null,
+        effectiveDate: null,
+        source: 'paid_current_month',
+      };
+    }
+
+    const renewalRows = await this.notificationsRepository.find({
       where: { tenantId, kind: 'rent_renewal' },
       order: { createdAt: 'DESC' },
+      take: 10,
+      select: [
+        'renewalMonthlyRentDisplay',
+        'renewalEffectiveDate',
+        'body',
+      ],
     });
 
-    const hasRenewalSummary =
-      latestRenewal &&
-      (Boolean(latestRenewal.renewalMonthlyRentDisplay?.trim()) ||
-        latestRenewal.renewalEffectiveDate != null);
+    const merged = mergeRenewalSummaryFromNotices(
+      renewalRows,
+      (value) => this.normalizePgDate(value),
+    );
 
-    if (latestRenewal && hasRenewalSummary) {
+    if (merged.renewalMonthlyRentDisplay || merged.renewalEffectiveDate) {
       return {
-        monthlyRentDisplay:
-          latestRenewal.renewalMonthlyRentDisplay?.trim() || null,
-        effectiveDate: this.normalizePgDate(
-          latestRenewal.renewalEffectiveDate,
-        ),
+        monthlyRentDisplay: merged.renewalMonthlyRentDisplay,
+        effectiveDate: merged.renewalEffectiveDate,
         source: 'renewal_notice',
       };
     }

@@ -5,6 +5,9 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { MaintenanceRequest } from '../maintenance/maintenance-request.entity';
 import { Property } from '../properties/property.entity';
+import { TenantPaymentConfirmation } from '../payment-confirmations/tenant-payment-confirmation.entity';
+import { ServiceChargeLine } from '../service-charges/service-charge-line.entity';
+import { TenantNotification } from '../tenant-notifications/tenant-notification.entity';
 import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
 import { TenantNotificationsModule } from '../tenant-notifications/tenant-notifications.module';
@@ -20,7 +23,15 @@ import { ManagersTenantsService } from './managers-tenants.service';
   imports: [
     AuthModule,
     TenantNotificationsModule,
-    TypeOrmModule.forFeature([User, TenantProfile, MaintenanceRequest, Property]),
+    TypeOrmModule.forFeature([
+      User,
+      TenantProfile,
+      MaintenanceRequest,
+      Property,
+      TenantNotification,
+      TenantPaymentConfirmation,
+      ServiceChargeLine,
+    ]),
   ],
   controllers: [
     ManagersPortfolioController,

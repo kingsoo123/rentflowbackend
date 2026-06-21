@@ -13,8 +13,13 @@ export function configureApp(app: INestApplication): void {
   if (!existsSync(maintenanceUploadsDir)) {
     mkdirSync(maintenanceUploadsDir, { recursive: true });
   }
+  const paymentReceiptsDir = join(process.cwd(), 'uploads', 'payment-receipts');
+  if (!existsSync(paymentReceiptsDir)) {
+    mkdirSync(paymentReceiptsDir, { recursive: true });
+  }
   const httpApp = app.getHttpAdapter().getInstance() as express.Application;
   httpApp.use('/api/uploads/maintenance', express.static(maintenanceUploadsDir));
+  httpApp.use('/api/uploads/payment-receipts', express.static(paymentReceiptsDir));
 
   app.useGlobalPipes(
     new ValidationPipe({

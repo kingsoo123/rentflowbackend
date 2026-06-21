@@ -39,6 +39,18 @@ export class Property {
   @Column({ type: 'varchar', length: 120, nullable: true })
   country: string | null;
 
+  @Column({ name: 'collection_bank_name', type: 'varchar', length: 120, nullable: true })
+  collectionBankName: string | null;
+
+  @Column({ name: 'collection_account_name', type: 'varchar', length: 200, nullable: true })
+  collectionAccountName: string | null;
+
+  @Column({ name: 'collection_account_number', type: 'varchar', length: 64, nullable: true })
+  collectionAccountNumber: string | null;
+
+  @Column({ name: 'collection_payment_instructions', type: 'text', nullable: true })
+  collectionPaymentInstructions: string | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }

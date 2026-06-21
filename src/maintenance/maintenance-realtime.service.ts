@@ -38,4 +38,30 @@ export class MaintenanceRealtimeService {
       this.namespace.to(`manager:${managerUserId}`).emit('lease_form:submitted', payload);
     }
   }
+
+  notifyPaymentSubmitted(
+    payload: {
+      id: string;
+      tenantId: string;
+      tenantName: string;
+      paymentType: string;
+      amountDisplay: string | null;
+    },
+    managerUserIds: string[],
+  ): void {
+    if (!this.namespace || managerUserIds.length === 0) {
+      return;
+    }
+    for (const managerUserId of managerUserIds) {
+      this.namespace.to(`manager:${managerUserId}`).emit('payment:submitted', payload);
+    }
+  }
+
+  /** Tell manager clients to refetch revenue cards (MTD collected / scheduled / last month). */
+  notifyRevenueUpdated(managerUserId: string): void {
+    if (!this.namespace) {
+      return;
+    }
+    this.namespace.to(`manager:${managerUserId}`).emit('revenue:updated', {});
+  }
 }
