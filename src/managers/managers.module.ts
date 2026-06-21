@@ -13,6 +13,8 @@ import { User } from '../users/user.entity';
 import { TenantNotificationsModule } from '../tenant-notifications/tenant-notifications.module';
 import { ManagersMaintenanceRequestsController } from './managers-maintenance-requests.controller';
 import { ManagersMaintenanceRequestsService } from './managers-maintenance-requests.service';
+import { ManagerAssistantController } from './manager-assistant.controller';
+import { ManagerAssistantService } from './manager-assistant.service';
 import { ManagersPortfolioController } from './managers-portfolio.controller';
 import { ManagersPortfolioService } from './managers-portfolio.service';
 import { ManagersTaskNotificationsController } from './managers-task-notifications.controller';
@@ -38,6 +40,7 @@ import { ManagersTenantsService } from './managers-tenants.service';
     ManagersTenantsController,
     ManagersMaintenanceRequestsController,
     ManagersTaskNotificationsController,
+    ManagerAssistantController,
   ],
   providers: [
     JwtAuthGuard,
@@ -45,6 +48,7 @@ import { ManagersTenantsService } from './managers-tenants.service';
     ManagersPortfolioService,
     ManagersTenantsService,
     ManagersMaintenanceRequestsService,
+    ManagerAssistantService,
   ],
   exports: [ManagersTenantsService],
 })

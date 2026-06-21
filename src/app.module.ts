@@ -15,6 +15,7 @@ import { ServiceChargesModule } from './service-charges/service-charges.module';
 import { DevicePushTokensModule } from './device-push-tokens/device-push-tokens.module';
 import { FirebaseModule } from './firebase/firebase.module';
 import { PaymentConfirmationsModule } from './payment-confirmations/payment-confirmations.module';
+import { DirectMessagesModule } from './direct-messages/direct-messages.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { PaymentConfirmationsModule } from './payment-confirmations/payment-conf
     DevicePushTokensModule,
     FirebaseModule,
     PaymentConfirmationsModule,
+    DirectMessagesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
