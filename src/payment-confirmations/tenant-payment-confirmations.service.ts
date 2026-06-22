@@ -15,8 +15,9 @@ import { Property } from '../properties/property.entity';
 import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
 import { UserRole } from '../users/user-role.enum';
-import { TenantNotificationsService } from '../tenant-notifications/tenant-notifications.service';
 import { ServiceChargesService } from '../service-charges/service-charges.service';
+import { PAYMENT_RECEIPT_UPLOAD_PATH_PREFIX } from '../uploads/upload-storage';
+import { TenantNotificationsService } from '../tenant-notifications/tenant-notifications.service';
 import type { SubmitPaymentConfirmationDto } from './dto/submit-payment-confirmation.dto';
 import { PaymentConfirmationStatus } from './payment-confirmation-status.enum';
 import { PaymentType } from './payment-type.enum';
@@ -64,7 +65,7 @@ export type TenantPaymentHistoryRow = {
   description: string;
 };
 
-const RECEIPT_PATH_PREFIX = '/api/uploads/payment-receipts/';
+const RECEIPT_PATH_PREFIX = PAYMENT_RECEIPT_UPLOAD_PATH_PREFIX;
 
 function pgErrorCode(err: unknown): string | undefined {
   if (err instanceof QueryFailedError) {

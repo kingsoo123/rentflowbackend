@@ -9,10 +9,12 @@ import {
   Equals,
   IsOptional,
 } from 'class-validator';
+import { SanitizeText, SanitizeTextOptional } from '../../common/decorators/sanitize-text.decorator';
 import { UserRole } from '../../users/user-role.enum';
 
 /** Request body aligned with `rent_pilot/components/auth/AuthOnboarding.tsx` (signup). */
 export class SignupDto {
+  @SanitizeText()
   @IsString()
   @MinLength(1)
   @MaxLength(120)
@@ -54,10 +56,8 @@ export class SignupDto {
    * at signup — validated in `AuthService.signup`.
    */
   @IsOptional()
+  @SanitizeTextOptional()
   @IsString()
   @MaxLength(8000)
-  @Transform(({ value }) =>
-    typeof value === 'string' ? value.trim() : value,
-  )
   propertyNames?: string;
 }

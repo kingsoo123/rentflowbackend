@@ -6,7 +6,6 @@ import {
   InternalServerErrorException,
   Logger,
   ServiceUnavailableException,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
@@ -20,6 +19,8 @@ import { Property } from '../properties/property.entity';
 import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
 import { UserRole } from '../users/user-role.enum';
+import { sanitizeUserText, sanitizeUserTextRecord } from '../common/sanitize-user-text';
+import { LoginRateLimitService } from './login-rate-limit.service';
 
 export type SignupResult = {
   id: string;
@@ -61,9 +62,12 @@ export class AuthService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly jwtService: JwtService,
+    private readonly loginRateLimit: LoginRateLimitService,
   ) {}
 
-  async login(dto: LoginDto): Promise<LoginResult> {
+  async login(dto: LoginDto, clientIp: string): Promise<LoginResult> {
+    this.loginRateLimit.assertCanAttempt(dto.email, clientIp);
+
     const remember = dto.remember === true;
     const expiresIn = remember ? '30d' : '1d';
 
@@ -74,15 +78,17 @@ export class AuthService {
       .getOne();
 
     if (!user) {
-      throw new UnauthorizedException('Invalid email or password');
+      this.loginRateLimit.rejectFailedAttempt(dto.email, clientIp);
     }
 
     const passwordOk = await bcrypt
       .compare(dto.password, user.passwordHash)
       .catch(() => false);
     if (!passwordOk) {
-      throw new UnauthorizedException('Invalid email or password');
+      this.loginRateLimit.rejectFailedAttempt(dto.email, clientIp);
     }
+
+    this.loginRateLimit.recordSuccess(dto.email, clientIp);
 
     const payload: JwtAccessPayload = {
       sub: user.id,
@@ -127,7 +133,7 @@ export class AuthService {
     return this.dataSource.transaction(async (em) => {
       const user = await this.persistNewUserWithManager(em, {
         email: dto.email,
-        fullName: dto.name.trim(),
+        fullName: sanitizeUserText(dto.name),
         passwordPlain: dto.password,
         role: dto.role,
         logContext: 'signup',
@@ -179,10 +185,11 @@ export class AuthService {
   async createTenantByManager(
     dto: CreateTenantDto,
   ): Promise<{ user: SignupResult; updated: boolean }> {
-    const profileData =
+    const profileData = sanitizeUserTextRecord(
       dto.profile && typeof dto.profile === 'object' && !Array.isArray(dto.profile)
         ? dto.profile
-        : {};
+        : {},
+    );
 
     const existing = await this.usersRepository.findOne({
       where: { email: dto.email },
@@ -197,7 +204,7 @@ export class AuthService {
 
       await this.usersRepository.update(
         { id: existing.id },
-        { fullName: dto.name.trim() },
+        { fullName: sanitizeUserText(dto.name) },
       );
 
       try {
@@ -210,7 +217,7 @@ export class AuthService {
         user: {
           id: existing.id,
           email: existing.email,
-          fullName: dto.name.trim(),
+          fullName: sanitizeUserText(dto.name),
           role: existing.role,
           createdAt: existing.createdAt,
         },
@@ -221,7 +228,7 @@ export class AuthService {
     const provisioningPassword = this.generateSecureProvisioningPassword();
     const created = await this.persistNewUser({
       email: dto.email,
-      fullName: dto.name.trim(),
+      fullName: sanitizeUserText(dto.name),
       passwordPlain: provisioningPassword,
       role: UserRole.TENANT,
       logContext: 'createTenantByManager',
@@ -248,18 +255,19 @@ export class AuthService {
     userId: string,
     profileData: Record<string, unknown>,
   ): Promise<void> {
+    const safeProfile = sanitizeUserTextRecord(profileData);
     const row = await this.tenantProfileRepository.findOne({
       where: { userId },
     });
     if (row) {
-      row.profileData = profileData;
+      row.profileData = safeProfile;
       await this.tenantProfileRepository.save(row);
       return;
     }
     await this.tenantProfileRepository.save(
       this.tenantProfileRepository.create({
         userId,
-        profileData,
+        profileData: safeProfile,
       }),
     );
   }

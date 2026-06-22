@@ -1,4 +1,5 @@
 import { IsEnum, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { SanitizeText, SanitizeTextOptional } from '../../common/decorators/sanitize-text.decorator';
 import { PaymentType } from '../payment-type.enum';
 
 export class SubmitPaymentConfirmationDto {
@@ -11,6 +12,7 @@ export class SubmitPaymentConfirmationDto {
   receiptPath: string;
 
   @IsOptional()
+  @SanitizeTextOptional()
   @IsString()
   @MaxLength(64)
   amountDisplay?: string;

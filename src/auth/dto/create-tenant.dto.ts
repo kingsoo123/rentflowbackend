@@ -7,9 +7,14 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+import {
+  SanitizeText,
+  SanitizeTextRecord,
+} from '../../common/decorators/sanitize-text.decorator';
 
 /** Body for `POST /api/managers/tenants` — creates a user with role `tenant`. */
 export class CreateTenantDto {
+  @SanitizeText()
   @IsString()
   @MinLength(1)
   @MaxLength(120)
@@ -24,6 +29,7 @@ export class CreateTenantDto {
 
   /** Extended onboarding fields from the property manager wizard (stored as JSONB). */
   @IsOptional()
+  @SanitizeTextRecord()
   @IsObject()
   profile?: Record<string, unknown>;
 }

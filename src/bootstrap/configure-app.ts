@@ -2,10 +2,15 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import express from 'express';
 
 export function configureApp(app: INestApplication): void {
   const configService = app.get(ConfigService);
+
+  const httpAdapter = app.getHttpAdapter();
+  const expressInstance = httpAdapter.getInstance() as {
+    set?: (setting: string, value: unknown) => void;
+  };
+  expressInstance.set?.('trust proxy', 1);
 
   app.setGlobalPrefix('api');
 
@@ -17,9 +22,6 @@ export function configureApp(app: INestApplication): void {
   if (!existsSync(paymentReceiptsDir)) {
     mkdirSync(paymentReceiptsDir, { recursive: true });
   }
-  const httpApp = app.getHttpAdapter().getInstance() as express.Application;
-  httpApp.use('/api/uploads/maintenance', express.static(maintenanceUploadsDir));
-  httpApp.use('/api/uploads/payment-receipts', express.static(paymentReceiptsDir));
 
   app.useGlobalPipes(
     new ValidationPipe({

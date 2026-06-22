@@ -16,6 +16,7 @@ import { DevicePushTokensModule } from './device-push-tokens/device-push-tokens.
 import { FirebaseModule } from './firebase/firebase.module';
 import { PaymentConfirmationsModule } from './payment-confirmations/payment-confirmations.module';
 import { DirectMessagesModule } from './direct-messages/direct-messages.module';
+import { SecuredUploadsModule } from './uploads/secured-uploads.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { DirectMessagesModule } from './direct-messages/direct-messages.module';
     FirebaseModule,
     PaymentConfirmationsModule,
     DirectMessagesModule,
+    SecuredUploadsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

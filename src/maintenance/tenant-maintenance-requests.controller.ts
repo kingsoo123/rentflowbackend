@@ -51,7 +51,8 @@ export class TenantMaintenanceRequestsController {
   }
 
   /**
-   * Multipart upload for maintenance photos. Serves files from `/api/uploads/maintenance/*`.
+   * Multipart upload for maintenance photos. Files are served from authenticated
+   * `GET /api/uploads/maintenance/:filename` (JWT required).
    * Returns `path` (for clients that build URLs from their API base) and `url` (absolute, for validators).
    */
   @Post('upload')

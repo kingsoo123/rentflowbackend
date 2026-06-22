@@ -10,6 +10,7 @@ import { ServiceChargeLine } from '../service-charges/service-charge-line.entity
 import { TenantNotification } from '../tenant-notifications/tenant-notification.entity';
 import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
+import { MaintenanceRealtimeModule } from '../maintenance/maintenance-realtime.module';
 import { TenantNotificationsModule } from '../tenant-notifications/tenant-notifications.module';
 import { ManagersMaintenanceRequestsController } from './managers-maintenance-requests.controller';
 import { ManagersMaintenanceRequestsService } from './managers-maintenance-requests.service';
@@ -24,6 +25,7 @@ import { ManagersTenantsService } from './managers-tenants.service';
 @Module({
   imports: [
     AuthModule,
+    MaintenanceRealtimeModule,
     TenantNotificationsModule,
     TypeOrmModule.forFeature([
       User,

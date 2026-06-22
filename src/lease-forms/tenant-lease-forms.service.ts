@@ -15,6 +15,7 @@ import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
 import { UserRole } from '../users/user-role.enum';
 import { SubmitLeaseFormDto } from './dto/submit-lease-form.dto';
+import { sanitizeUserText } from '../common/sanitize-user-text';
 import {
   getLeaseFormTemplate,
   listLeaseFormTemplates,
@@ -183,11 +184,11 @@ export class TenantLeaseFormsService {
           (typeof v === 'string' && ['true', '1', 'yes', 'on'].includes(v.trim().toLowerCase()));
         out[field.key] = b ? 'true' : 'false';
       } else if (typeof v === 'string') {
-        out[field.key] = v.trim();
+        out[field.key] = sanitizeUserText(v);
       } else if (v === null || v === undefined) {
         out[field.key] = '';
       } else {
-        out[field.key] = String(v).trim();
+        out[field.key] = sanitizeUserText(String(v));
       }
     }
     for (const key of Object.keys(raw)) {

@@ -8,6 +8,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
+import { SanitizeTextOptional } from '../../common/decorators/sanitize-text.decorator';
 
 export class ListManagersTenantsQueryDto {
   @IsOptional()
@@ -24,16 +25,16 @@ export class ListManagersTenantsQueryDto {
   limit = 10;
 
   @IsOptional()
+  @SanitizeTextOptional()
   @IsString()
   @MaxLength(200)
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   search?: string;
 
   /** Case-insensitive match on `profile.propertyAssigned`. */
   @IsOptional()
+  @SanitizeTextOptional()
   @IsString()
   @MaxLength(200)
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   property?: string;
 
   /** When set, only tenants assigned to this managed property (by exact name match) are returned. */

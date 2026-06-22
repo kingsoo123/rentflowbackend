@@ -23,6 +23,7 @@ import type { JwtAccessPayload } from '../auth/types/jwt-payload';
 import { ListManagersTenantsQueryDto } from './dto/list-managers-tenants.query.dto';
 import { LookupTenantEmailQueryDto } from './dto/lookup-tenant-email.query.dto';
 import { PatchTenantDto } from './dto/patch-tenant.dto';
+import { MaintenanceRealtimeService } from '../maintenance/maintenance-realtime.service';
 import { ManagersTenantsService } from './managers-tenants.service';
 
 type AuthedManagerRequest = Request & { user: JwtAccessPayload };
@@ -34,6 +35,7 @@ export class ManagersTenantsController {
   constructor(
     private readonly authService: AuthService,
     private readonly managersTenantsService: ManagersTenantsService,
+    private readonly maintenanceRealtime: MaintenanceRealtimeService,
   ) {}
 
   @Get()
@@ -74,6 +76,7 @@ export class ManagersTenantsController {
         : undefined,
     );
     const { user, updated } = await this.authService.createTenantByManager(dto);
+    this.maintenanceRealtime.notifyOccupancyUpdated(req.user.sub);
     res.status(updated ? HttpStatus.OK : HttpStatus.CREATED);
     return user;
   }

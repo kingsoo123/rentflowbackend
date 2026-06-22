@@ -9,6 +9,11 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+import {
+  SanitizeText,
+  SanitizeTextOptional,
+} from '../../common/decorators/sanitize-text.decorator';
+import { sanitizeOptionalUserText } from '../../common/sanitize-user-text';
 
 /** Merges legacy `tenantEmail` with `tenantEmails` (deduped, lowercased). */
 export function mergeRentRenewalRecipientEmails(
@@ -57,31 +62,26 @@ export class SendRentRenewalNoticeDto {
   })
   tenantEmails?: string[];
 
+  @SanitizeText()
   @IsString()
   @MinLength(20, { message: 'Notice body is too short' })
   @MaxLength(20000, { message: 'Notice body is too long' })
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   noticeBody!: string;
 
   @IsOptional()
   @IsString()
   @MaxLength(280)
-  @Transform(({ value }) =>
-    typeof value === 'string' ? value.trim().slice(0, 280) : value,
-  )
+  @Transform(({ value }) => {
+    const sanitized = sanitizeOptionalUserText(value);
+    return typeof sanitized === 'string' ? sanitized.slice(0, 280) : sanitized;
+  })
   headline?: string;
 
   /** Proposed monthly rent as shown on the renewal form (optional). */
   @IsOptional()
+  @SanitizeTextOptional()
   @IsString()
   @MaxLength(128)
-  @Transform(({ value }) => {
-    if (typeof value !== 'string') {
-      return undefined;
-    }
-    const t = value.trim();
-    return t === '' ? undefined : t;
-  })
   renewalMonthlyRentDisplay?: string;
 
   /** Current lease end / renewal anchor date from the manager form, YYYY-MM-DD (optional). */

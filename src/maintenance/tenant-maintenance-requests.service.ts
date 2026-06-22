@@ -7,6 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
 import { ManagersTenantsService } from '../managers/managers-tenants.service';
+import { assertMaintenanceAttachmentUrl } from '../uploads/upload-storage';
 import { SubmitMaintenanceRequestDto } from './dto/submit-maintenance-request.dto';
 import { MaintenanceRequest } from './maintenance-request.entity';
 import { MaintenanceRequestStatus } from './maintenance-request-status.enum';
@@ -87,6 +88,9 @@ export class TenantMaintenanceRequestsService {
     dto: SubmitMaintenanceRequestDto,
   ): Promise<SubmittedMaintenanceResponse> {
     const urls = dto.attachmentUrls?.length ? dto.attachmentUrls : [];
+    for (const url of urls) {
+      assertMaintenanceAttachmentUrl(url);
+    }
     try {
       const entity = this.maintenanceRepository.create({
         tenantId,

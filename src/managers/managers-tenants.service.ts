@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
+import { sanitizeUserText } from '../common/sanitize-user-text';
 import { ListManagersTenantsQueryDto } from './dto/list-managers-tenants.query.dto';
 import type { PatchTenantDto } from './dto/patch-tenant.dto';
 import { Property } from '../properties/property.entity';
@@ -81,7 +82,7 @@ function mergeProfilePatch(
       continue;
     }
     if (typeof rawVal === 'string') {
-      const t = rawVal.trim();
+      const t = sanitizeUserText(rawVal);
       if (t === '') {
         delete merged[key];
       } else {

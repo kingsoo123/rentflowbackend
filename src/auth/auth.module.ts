@@ -7,6 +7,7 @@ import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { LoginRateLimitService } from './login-rate-limit.service';
 
 @Module({
   imports: [
@@ -36,7 +37,7 @@ import { AuthService } from './auth.service';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService],
+  providers: [AuthService, LoginRateLimitService],
   exports: [JwtModule, AuthService],
 })
 export class AuthModule {}

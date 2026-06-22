@@ -1,4 +1,4 @@
-import { Type, Transform } from 'class-transformer';
+import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
@@ -10,12 +10,13 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
+import { SanitizeText } from '../../common/decorators/sanitize-text.decorator';
 
 export class ServiceChargeLineInputDto {
+  @SanitizeText()
   @IsString()
   @MinLength(1)
   @MaxLength(200)
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   label: string;
 
   @IsNumber({ maxDecimalPlaces: 2 })

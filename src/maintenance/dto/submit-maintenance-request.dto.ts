@@ -1,4 +1,3 @@
-import { Transform } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
@@ -9,19 +8,20 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { SanitizeText } from '../../common/decorators/sanitize-text.decorator';
 import { MaintenanceUrgency } from '../maintenance-urgency.enum';
 
 export class SubmitMaintenanceRequestDto {
+  @SanitizeText()
   @IsString()
   @MinLength(3)
   @MaxLength(200)
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   title: string;
 
+  @SanitizeText()
   @IsString()
   @MinLength(10)
   @MaxLength(8000)
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   description: string;
 
   @IsEnum(MaintenanceUrgency)

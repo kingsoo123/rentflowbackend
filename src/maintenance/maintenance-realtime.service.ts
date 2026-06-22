@@ -64,4 +64,12 @@ export class MaintenanceRealtimeService {
     }
     this.namespace.to(`manager:${managerUserId}`).emit('revenue:updated', {});
   }
+
+  /** Tell manager clients to refetch occupancy tenant tables after roster changes. */
+  notifyOccupancyUpdated(managerUserId: string): void {
+    if (!this.namespace) {
+      return;
+    }
+    this.namespace.to(`manager:${managerUserId}`).emit('occupancy:updated', {});
+  }
 }
