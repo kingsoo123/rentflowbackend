@@ -8,6 +8,7 @@ import {
   IsBoolean,
   Equals,
   IsOptional,
+  Matches,
 } from 'class-validator';
 import { SanitizeText, SanitizeTextOptional } from '../../common/decorators/sanitize-text.decorator';
 import { UserRole } from '../../users/user-role.enum';
@@ -29,6 +30,23 @@ export class SignupDto {
     typeof value === 'string' ? value.trim().toLowerCase() : value,
   )
   email: string;
+
+  /** International dial code, e.g. `+234`. */
+  @IsString()
+  @MinLength(2)
+  @MaxLength(8)
+  @Matches(/^\+\d{1,4}$/, { message: 'Select a valid country code' })
+  phoneCountryCode: string;
+
+  /** National number digits only (no country code). */
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.replace(/\D/g, '') : value,
+  )
+  @IsString()
+  @MinLength(4)
+  @MaxLength(15)
+  @Matches(/^\d+$/, { message: 'Phone number must contain digits only' })
+  phoneNumber: string;
 
   @IsString()
   @MinLength(8)

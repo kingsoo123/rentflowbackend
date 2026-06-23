@@ -23,6 +23,12 @@ export class User {
   @Column({ type: 'varchar', length: 32 })
   role: UserRole;
 
+  @Column({ name: 'phone_country_code', type: 'varchar', length: 8, nullable: true })
+  phoneCountryCode: string | null;
+
+  @Column({ name: 'phone_number', type: 'varchar', length: 20, nullable: true })
+  phoneNumber: string | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }

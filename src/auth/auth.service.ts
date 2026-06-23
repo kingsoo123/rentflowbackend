@@ -20,6 +20,7 @@ import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
 import { UserRole } from '../users/user-role.enum';
 import { sanitizeUserText, sanitizeUserTextRecord } from '../common/sanitize-user-text';
+import { normalizeSignupPhone } from '../common/phone-signup';
 import { LoginRateLimitService } from './login-rate-limit.service';
 
 export type SignupResult = {
@@ -130,12 +131,16 @@ export class AuthService {
       );
     }
 
+    const phone = normalizeSignupPhone(dto.phoneCountryCode, dto.phoneNumber);
+
     return this.dataSource.transaction(async (em) => {
       const user = await this.persistNewUserWithManager(em, {
         email: dto.email,
         fullName: sanitizeUserText(dto.name),
         passwordPlain: dto.password,
         role: dto.role,
+        phoneCountryCode: phone.phoneCountryCode,
+        phoneNumber: phone.phoneNumber,
         logContext: 'signup',
       });
 
@@ -305,6 +310,8 @@ export class AuthService {
     fullName: string;
     passwordPlain: string;
     role: UserRole;
+    phoneCountryCode?: string | null;
+    phoneNumber?: string | null;
     logContext: string;
   }): Promise<SignupResult> {
     return this.persistNewUserWithManager(this.usersRepository.manager, params);
@@ -348,6 +355,8 @@ export class AuthService {
       fullName: string;
       passwordPlain: string;
       role: UserRole;
+      phoneCountryCode?: string | null;
+      phoneNumber?: string | null;
       logContext: string;
     },
   ): Promise<SignupResult> {
@@ -368,6 +377,8 @@ export class AuthService {
         passwordHash,
         fullName: params.fullName,
         role: params.role,
+        phoneCountryCode: params.phoneCountryCode ?? null,
+        phoneNumber: params.phoneNumber ?? null,
       });
       await usersRepository.save(user);
 
