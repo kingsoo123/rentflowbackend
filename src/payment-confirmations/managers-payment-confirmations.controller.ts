@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Get,
   HttpCode,
@@ -43,6 +44,21 @@ export class ManagersPaymentConfirmationsController {
   @Get('closed-last-month')
   closedLastMonth(@Req() req: Request & { user: JwtAccessPayload }) {
     return this.tenantPaymentConfirmationsService.getClosedLastMonthForManager(req.user.sub);
+  }
+
+  @Get('breakdown/:card')
+  revenueBreakdown(
+    @Req() req: Request & { user: JwtAccessPayload },
+    @Param('card') card: string,
+  ) {
+    const allowed = new Set(['collected-mtd', 'scheduled-mtd', 'closed-last-month']);
+    if (!allowed.has(card)) {
+      throw new BadRequestException('Invalid revenue card.');
+    }
+    return this.tenantPaymentConfirmationsService.getRevenueBreakdownForManager(
+      req.user.sub,
+      card as 'collected-mtd' | 'scheduled-mtd' | 'closed-last-month',
+    );
   }
 
   @Patch(':id/confirm')

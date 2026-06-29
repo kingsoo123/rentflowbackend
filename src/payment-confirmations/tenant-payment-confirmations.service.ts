@@ -476,6 +476,271 @@ export class TenantPaymentConfirmationsService {
     }
   }
 
+  async getRevenueBreakdownForManager(
+    managerUserId: string,
+    card: 'collected-mtd' | 'scheduled-mtd' | 'closed-last-month',
+  ): Promise<{
+    card: typeof card;
+    title: string;
+    total: number;
+    periodLabel: string;
+    rentSubtotal: number;
+    serviceChargeSubtotal: number;
+    lineCount: number;
+    howCalculated: string;
+    lines: {
+      tenantName: string;
+      category: 'rent' | 'service_charge';
+      label: string;
+      amount: number;
+      amountDisplay: string | null;
+      detail: string | null;
+    }[];
+  }> {
+    if (card === 'scheduled-mtd') {
+      return this.buildScheduledMtdBreakdown(managerUserId);
+    }
+    const which = card === 'collected-mtd' ? 'current' : 'previous';
+    return this.buildConfirmedPaymentsBreakdown(managerUserId, which, card);
+  }
+
+  private async buildConfirmedPaymentsBreakdown(
+    managerUserId: string,
+    which: 'current' | 'previous',
+    card: 'collected-mtd' | 'closed-last-month',
+  ) {
+    const rosterIds = await this.managersTenantsService.listTenantIdsOnManagerRoster(
+      managerUserId,
+      500,
+    );
+    const periodLabel = this.confirmedPaymentsPeriodLabel(which);
+    const title = card === 'collected-mtd' ? 'Collected (MTD)' : 'Last month (closed)';
+    const howCalculated =
+      card === 'collected-mtd'
+        ? `Each line is a payment receipt you confirmed in ${periodLabel}. Amounts use the figure on the receipt (rent or service charge).`
+        : `Each line is a payment receipt you confirmed in ${periodLabel}. Amounts use the figure on the receipt (rent or service charge).`;
+
+    if (rosterIds.length === 0) {
+      return {
+        card,
+        title,
+        total: 0,
+        periodLabel,
+        rentSubtotal: 0,
+        serviceChargeSubtotal: 0,
+        lineCount: 0,
+        howCalculated,
+        lines: [],
+      };
+    }
+
+    const monthMatch =
+      which === 'current'
+        ? `date_trunc('month', pc.confirmed_at) = date_trunc('month', now())`
+        : `date_trunc('month', pc.confirmed_at) = date_trunc('month', now() - interval '1 month')`;
+
+    try {
+      const rows = await this.confirmationsRepository
+        .createQueryBuilder('pc')
+        .where('pc.manager_user_id = :managerUserId', { managerUserId })
+        .andWhere('pc.tenant_id IN (:...rosterIds)', { rosterIds })
+        .andWhere('pc.status = :status', { status: PaymentConfirmationStatus.CONFIRMED })
+        .andWhere('pc.confirmed_at IS NOT NULL')
+        .andWhere(monthMatch)
+        .orderBy('pc.confirmed_at', 'DESC')
+        .getMany();
+
+      const tenantIds = [...new Set(rows.map((r) => r.tenantId))];
+      const tenants =
+        tenantIds.length === 0
+          ? []
+          : await this.usersRepository.find({
+              where: { id: In(tenantIds), role: UserRole.TENANT },
+              select: ['id', 'fullName', 'email'],
+            });
+      const tenantById = new Map(tenants.map((t) => [t.id, t]));
+
+      let rentSubtotal = 0;
+      let serviceChargeSubtotal = 0;
+      const lines = rows.map((row) => {
+        const tenant = tenantById.get(row.tenantId);
+        const tenantName = tenant?.fullName?.trim() || tenant?.email?.trim() || 'Tenant';
+        const amount = parseAmountDisplay(row.amountDisplay);
+        const category =
+          row.paymentType === PaymentType.SERVICE_CHARGE ? 'service_charge' : 'rent';
+        if (category === 'rent') {
+          rentSubtotal += amount;
+        } else {
+          serviceChargeSubtotal += amount;
+        }
+        const confirmedAt = row.confirmedAt?.toISOString() ?? null;
+        return {
+          tenantName,
+          category: category as 'rent' | 'service_charge',
+          label: category === 'rent' ? 'Rent' : 'Service charge',
+          amount,
+          amountDisplay: row.amountDisplay?.trim() || null,
+          detail: confirmedAt
+            ? `Confirmed ${confirmedAt.slice(0, 10)}`
+            : null,
+        };
+      });
+
+      const total = Math.round((rentSubtotal + serviceChargeSubtotal) * 100) / 100;
+      rentSubtotal = Math.round(rentSubtotal * 100) / 100;
+      serviceChargeSubtotal = Math.round(serviceChargeSubtotal * 100) / 100;
+
+      return {
+        card,
+        title,
+        total,
+        periodLabel,
+        rentSubtotal,
+        serviceChargeSubtotal,
+        lineCount: lines.length,
+        howCalculated,
+        lines,
+      };
+    } catch (err) {
+      this.rethrowIfMissingTable(err);
+      this.logger.error(
+        `buildConfirmedPaymentsBreakdown(${card}) failed`,
+        err instanceof Error ? err.stack : String(err),
+      );
+      throw new InternalServerErrorException('Could not load revenue breakdown.');
+    }
+  }
+
+  private async buildScheduledMtdBreakdown(managerUserId: string) {
+    const rosterIds = await this.managersTenantsService.listTenantIdsOnManagerRoster(
+      managerUserId,
+      500,
+    );
+    const periodLabel = this.confirmedPaymentsPeriodLabel('current');
+    const title = 'Scheduled (MTD)';
+    const howCalculated =
+      'For each tenant on your roster, unpaid rent on file plus published service charge line items are added (same rules as each tenant\'s current balance card).';
+
+    if (rosterIds.length === 0) {
+      return {
+        card: 'scheduled-mtd' as const,
+        title,
+        total: 0,
+        periodLabel,
+        rentSubtotal: 0,
+        serviceChargeSubtotal: 0,
+        lineCount: 0,
+        howCalculated,
+        lines: [],
+      };
+    }
+
+    try {
+      const tenants = await this.usersRepository.find({
+        where: { id: In(rosterIds), role: UserRole.TENANT },
+        select: ['id', 'fullName', 'email'],
+      });
+      const tenantById = new Map(tenants.map((t) => [t.id, t]));
+
+      const lines: {
+        tenantName: string;
+        category: 'rent' | 'service_charge';
+        label: string;
+        amount: number;
+        amountDisplay: string | null;
+        detail: string | null;
+      }[] = [];
+
+      await Promise.all(
+        rosterIds.map(async (tenantId) => {
+          const tenant = tenantById.get(tenantId);
+          const tenantName = tenant?.fullName?.trim() || tenant?.email?.trim() || 'Tenant';
+          const [upcoming, serviceCharges] = await Promise.all([
+            this.tenantNotificationsService.getUpcomingRentSummary(tenantId),
+            this.serviceChargesService.listForTenant(tenantId),
+          ]);
+
+          if (upcoming.source !== 'paid_current_month') {
+            const rentDue = parseAmountDisplay(upcoming.monthlyRentDisplay);
+            if (rentDue > 0) {
+              lines.push({
+                tenantName,
+                category: 'rent',
+                label: 'Rent',
+                amount: rentDue,
+                amountDisplay: upcoming.monthlyRentDisplay?.trim() || null,
+                detail:
+                  upcoming.source === 'renewal_notice'
+                    ? 'Renewal notice on file'
+                    : upcoming.source === 'profile'
+                      ? 'Monthly rent on profile'
+                      : 'Upcoming rent',
+              });
+            }
+          }
+
+          if (serviceCharges.source === 'active' && serviceCharges.lines.length > 0) {
+            const serviceDue = serviceCharges.lines.reduce(
+              (acc, line) => acc + (Number.isFinite(line.amount) ? line.amount : 0),
+              0,
+            );
+            if (serviceDue > 0) {
+              const rounded = Math.round(serviceDue * 100) / 100;
+              lines.push({
+                tenantName,
+                category: 'service_charge',
+                label: 'Service charge',
+                amount: rounded,
+                amountDisplay: `$${rounded.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`,
+                detail: `${serviceCharges.lines.length} published line item${serviceCharges.lines.length === 1 ? '' : 's'}`,
+              });
+            }
+          }
+        }),
+      );
+
+      lines.sort((a, b) => {
+        const byName = a.tenantName.localeCompare(b.tenantName);
+        if (byName !== 0) {
+          return byName;
+        }
+        return a.category.localeCompare(b.category);
+      });
+
+      let rentSubtotal = 0;
+      let serviceChargeSubtotal = 0;
+      for (const line of lines) {
+        if (line.category === 'rent') {
+          rentSubtotal += line.amount;
+        } else {
+          serviceChargeSubtotal += line.amount;
+        }
+      }
+      const total = Math.round((rentSubtotal + serviceChargeSubtotal) * 100) / 100;
+      rentSubtotal = Math.round(rentSubtotal * 100) / 100;
+      serviceChargeSubtotal = Math.round(serviceChargeSubtotal * 100) / 100;
+
+      return {
+        card: 'scheduled-mtd' as const,
+        title,
+        total,
+        periodLabel,
+        rentSubtotal,
+        serviceChargeSubtotal,
+        lineCount: lines.length,
+        howCalculated,
+        lines,
+      };
+    } catch (err) {
+      this.rethrowIfMissingTable(err);
+      this.logger.error(
+        'buildScheduledMtdBreakdown failed',
+        err instanceof Error ? err.stack : String(err),
+      );
+      throw new InternalServerErrorException('Could not load revenue breakdown.');
+    }
+  }
+
   async confirmForManager(
     managerUserId: string,
     confirmationId: string,
