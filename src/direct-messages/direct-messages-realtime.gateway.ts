@@ -11,6 +11,7 @@ import type { JwtAccessPayload } from '../auth/types/jwt-payload';
 import { UserRole } from '../users/user-role.enum';
 import {
   DirectMessagesRealtimeService,
+  artisanMessagesRoom,
   managerMessagesRoom,
   tenantMessagesRoom,
 } from './direct-messages-realtime.service';
@@ -127,4 +128,52 @@ function extractToken(client: Socket): string | undefined {
     return q[0].trim();
   }
   return undefined;
+}
+
+@WebSocketGateway({
+  namespace: '/artisans/messages',
+  cors: { origin: true, credentials: true },
+})
+export class ArtisanDirectMessagesGateway implements OnGatewayInit, OnGatewayConnection {
+  private readonly logger = new Logger(ArtisanDirectMessagesGateway.name);
+
+  @WebSocketServer()
+  server!: Namespace;
+
+  constructor(
+    private readonly jwtService: JwtService,
+    private readonly directMessagesRealtime: DirectMessagesRealtimeService,
+  ) {}
+
+  afterInit(): void {
+    this.directMessagesRealtime.setArtisanNamespace(this.server);
+  }
+
+  handleConnection(client: Socket): void {
+    void this.authenticateAndJoin(client);
+  }
+
+  private async authenticateAndJoin(client: Socket): Promise<void> {
+    const rawToken = extractToken(client);
+    if (!rawToken) {
+      this.logger.debug('WS disconnect: missing token');
+      client.disconnect(true);
+      return;
+    }
+    try {
+      const payload = await this.jwtService.verifyAsync<JwtAccessPayload>(rawToken, {
+        issuer: 'real_estate_backend',
+        audience: 'rent_pilot',
+      });
+      if (payload.role !== UserRole.ARTISAN) {
+        this.logger.debug('WS disconnect: not an artisan');
+        client.disconnect(true);
+        return;
+      }
+      await client.join(artisanMessagesRoom(payload.sub));
+    } catch {
+      this.logger.debug('WS disconnect: invalid token');
+      client.disconnect(true);
+    }
+  }
 }

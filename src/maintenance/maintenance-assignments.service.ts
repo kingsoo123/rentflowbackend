@@ -9,6 +9,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { ArtisanNotificationsService } from '../artisans/artisan-notifications.service';
+import { ArtisanNotificationsRealtimeService } from '../artisans/artisan-notifications-realtime.service';
 import { ManagerArtisanRoster } from '../managers/manager-artisan-roster.entity';
 import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
@@ -19,6 +20,7 @@ import {
   MaintenanceAssignmentStatus,
 } from './maintenance-assignment-status.enum';
 import { MaintenanceRequest } from './maintenance-request.entity';
+import { MaintenanceRequestStatus } from './maintenance-request-status.enum';
 
 export type MaintenanceAssignmentSummary = {
   id: string;
@@ -64,6 +66,7 @@ export class MaintenanceAssignmentsService {
     @InjectRepository(TenantProfile)
     private readonly tenantProfileRepository: Repository<TenantProfile>,
     private readonly artisanNotificationsService: ArtisanNotificationsService,
+    private readonly artisanNotificationsRealtime: ArtisanNotificationsRealtimeService,
   ) {}
 
   acceptDeadlineFrom(assignedAt: Date): Date {
@@ -281,7 +284,30 @@ export class MaintenanceAssignmentsService {
           respondedAt: row.respondedAt?.toISOString() ?? null,
           attachmentUrls: Array.isArray(req?.attachmentUrls) ? req!.attachmentUrls : [],
         };
-      });
+      })
+      .filter(
+        (row) =>
+          row.assignmentStatus === MaintenanceAssignmentStatus.PENDING ||
+          (row.assignmentStatus === MaintenanceAssignmentStatus.ACCEPTED &&
+            row.maintenanceStatus !== MaintenanceRequestStatus.RESOLVED),
+      );
+  }
+
+  /** Push worker dashboards to refresh when a job's maintenance status changes. */
+  async notifyArtisanForRequestUpdate(maintenanceRequestId: string): Promise<void> {
+    const assignment = await this.assignmentRepository.findOne({
+      where: {
+        maintenanceRequestId,
+        status: In([
+          MaintenanceAssignmentStatus.PENDING,
+          MaintenanceAssignmentStatus.ACCEPTED,
+        ]),
+      },
+      order: { assignedAt: 'DESC' },
+    });
+    if (assignment) {
+      this.artisanNotificationsRealtime.notifyAssignmentsUpdated(assignment.artisanUserId);
+    }
   }
 
   async acceptAssignment(
@@ -315,6 +341,8 @@ export class MaintenanceAssignmentsService {
     row.status = MaintenanceAssignmentStatus.ACCEPTED;
     row.respondedAt = new Date();
     await this.assignmentRepository.save(row);
+
+    this.artisanNotificationsRealtime.notifyAssignmentsUpdated(artisanUserId);
 
     const list = await this.listForArtisan(artisanUserId);
     const found = list.find((a) => a.id === assignmentId);

@@ -148,6 +148,7 @@ export class ManagersMaintenanceRequestsService {
           err instanceof Error ? err.stack : String(err),
         );
       }
+      await this.maintenanceAssignmentsService.notifyArtisanForRequestUpdate(saved.id);
     }
 
     const tenants = await this.usersRepository.find({
