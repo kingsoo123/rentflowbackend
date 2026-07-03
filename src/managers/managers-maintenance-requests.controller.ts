@@ -5,6 +5,7 @@ import {
   Param,
   ParseUUIDPipe,
   Patch,
+  Post,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -14,6 +15,7 @@ import type { JwtAccessPayload } from '../auth/types/jwt-payload';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { UpdateMaintenanceRequestStatusDto } from '../maintenance/dto/update-maintenance-request-status.dto';
+import { AssignMaintenanceWorkerDto } from '../maintenance/dto/assign-maintenance-worker.dto';
 import { UserRole } from '../users/user-role.enum';
 import { ManagersMaintenanceRequestsService } from './managers-maintenance-requests.service';
 
@@ -42,6 +44,19 @@ export class ManagersMaintenanceRequestsController {
       req.user.sub,
       id,
       dto.status,
+    );
+  }
+
+  @Post(':id/assign')
+  assignWorker(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AssignMaintenanceWorkerDto,
+    @Req() req: AuthedManagerRequest,
+  ) {
+    return this.managersMaintenanceRequestsService.assignWorker(
+      req.user.sub,
+      id,
+      dto.artisanUserId,
     );
   }
 }

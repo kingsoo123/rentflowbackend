@@ -58,9 +58,19 @@ export class FcmPushService {
     body: string,
     data: Record<string, string>,
   ): Promise<void> {
-    const rows = await this.devicePushTokens.findAllPushTokensByUserIds([tenantId]);
+    return this.notifyUser(tenantId, title, body, data);
+  }
+
+  /** Push to any user (tenant, artisan, etc.) with registered device tokens. */
+  async notifyUser(
+    userId: string,
+    title: string,
+    body: string,
+    data: Record<string, string>,
+  ): Promise<void> {
+    const rows = await this.devicePushTokens.findAllPushTokensByUserIds([userId]);
     if (rows.length === 0) {
-      this.logger.warn(`notifyTenant: no device push tokens stored for user ${tenantId}`);
+      this.logger.warn(`notifyUser: no device push tokens stored for user ${userId}`);
     }
     const expoRows = rows.filter(
       (r) => r.tokenProvider === 'expo' && ExpoPushService.isExpoPushToken(r.token),
@@ -95,10 +105,10 @@ export class FcmPushService {
         });
       } catch (e) {
         if (isUnregisteredTokenError(e)) {
-          await this.devicePushTokens.deleteByUserIdAndToken(tenantId, row.token);
+          await this.devicePushTokens.deleteByUserIdAndToken(userId, row.token);
         } else {
           this.logger.warn(
-            `FCM send failed for user ${tenantId}: ${e instanceof Error ? e.message : String(e)}`,
+            `FCM send failed for user ${userId}: ${e instanceof Error ? e.message : String(e)}`,
           );
         }
       }

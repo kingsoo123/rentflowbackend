@@ -2,4 +2,5 @@
 export enum UserRole {
   PROPERTY_MANAGER = 'property_manager',
   TENANT = 'tenant',
+  ARTISAN = 'artisan',
 }

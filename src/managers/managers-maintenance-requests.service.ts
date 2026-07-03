@@ -9,6 +9,8 @@ import { TenantNotificationsService } from '../tenant-notifications/tenant-notif
 import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
 import { UserRole } from '../users/user-role.enum';
+import { MaintenanceAssignmentsService } from '../maintenance/maintenance-assignments.service';
+import type { MaintenanceAssignmentSummary } from '../maintenance/maintenance-assignments.service';
 import { ManagersTenantsService } from './managers-tenants.service';
 
 export type ManagerMaintenanceRequestRow = {
@@ -22,6 +24,7 @@ export type ManagerMaintenanceRequestRow = {
   updatedAt: Date;
   tenantFullName: string;
   tenantEmail: string;
+  assignment: MaintenanceAssignmentSummary | null;
 };
 
 @Injectable()
@@ -34,6 +37,7 @@ export class ManagersMaintenanceRequestsService {
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
     private readonly managersTenantsService: ManagersTenantsService,
+    private readonly maintenanceAssignmentsService: MaintenanceAssignmentsService,
     private readonly tenantNotificationsService: TenantNotificationsService,
     private readonly tenantNotificationsRealtime: TenantNotificationsRealtimeService,
   ) {}
@@ -66,7 +70,48 @@ export class ManagersMaintenanceRequestsService {
       where: { id: In(tenantIds) },
     });
     const byId = new Map(tenants.map((u) => [u.id, u]));
-    return rows.map((r) => this.toRow(r, byId));
+    const assignmentByRequest =
+      await this.maintenanceAssignmentsService.getLatestAssignmentForRequests(
+        rows.map((r) => r.id),
+      );
+    return rows.map((r) =>
+      this.toRow(r, byId, assignmentByRequest.get(r.id) ?? null),
+    );
+  }
+
+  async assignWorker(
+    managerUserId: string,
+    maintenanceRequestId: string,
+    artisanUserId: string,
+  ): Promise<ManagerMaintenanceRequestRow> {
+    const request = await this.maintenanceRepository.findOne({
+      where: { id: maintenanceRequestId },
+    });
+    if (!request) {
+      throw new NotFoundException('Maintenance request not found');
+    }
+    await this.managersTenantsService.assertTenantBelongsToManager(
+      managerUserId,
+      request.tenantId,
+    );
+    await this.maintenanceAssignmentsService.assignWorker(
+      managerUserId,
+      maintenanceRequestId,
+      artisanUserId,
+    );
+    const tenants = await this.usersRepository.find({
+      where: { id: request.tenantId },
+    });
+    const byId = new Map(tenants.map((u) => [u.id, u]));
+    const assignmentByRequest =
+      await this.maintenanceAssignmentsService.getLatestAssignmentForRequests([
+        maintenanceRequestId,
+      ]);
+    return this.toRow(
+      request,
+      byId,
+      assignmentByRequest.get(maintenanceRequestId) ?? null,
+    );
   }
 
   async updateStatus(
@@ -109,12 +154,21 @@ export class ManagersMaintenanceRequestsService {
       where: { id: saved.tenantId },
     });
     const byId = new Map(tenants.map((u) => [u.id, u]));
-    return this.toRow(saved, byId);
+    const assignmentByRequest =
+      await this.maintenanceAssignmentsService.getLatestAssignmentForRequests([
+        saved.id,
+      ]);
+    return this.toRow(
+      saved,
+      byId,
+      assignmentByRequest.get(saved.id) ?? null,
+    );
   }
 
   private toRow(
     r: MaintenanceRequest,
     tenantById: Map<string, User>,
+    assignment: MaintenanceAssignmentSummary | null,
   ): ManagerMaintenanceRequestRow {
     const u = tenantById.get(r.tenantId);
     return {
@@ -128,6 +182,7 @@ export class ManagersMaintenanceRequestsService {
       updatedAt: r.updatedAt,
       tenantFullName: u?.fullName ?? 'Unknown tenant',
       tenantEmail: u?.email ?? '',
+      assignment,
     };
   }
 }

@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { configuration, createTypeOrmOptions, validateEnv } from './config';
+import { ArtisansModule } from './artisans/artisans.module';
 import { AuthModule } from './auth/auth.module';
 import { HealthModule } from './health/health.module';
 import { ManagersModule } from './managers/managers.module';
@@ -35,6 +36,7 @@ import { SecuredUploadsModule } from './uploads/secured-uploads.module';
     }),
     HealthModule,
     AuthModule,
+    ArtisansModule,
     ManagersModule,
     MaintenanceModule,
     LeaseFormsModule,
