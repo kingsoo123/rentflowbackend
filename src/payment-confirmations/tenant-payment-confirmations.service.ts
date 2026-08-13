@@ -16,7 +16,7 @@ import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
 import { UserRole } from '../users/user-role.enum';
 import { ServiceChargesService } from '../service-charges/service-charges.service';
-import { PAYMENT_RECEIPT_UPLOAD_PATH_PREFIX } from '../uploads/upload-storage';
+import { assertPaymentReceiptPath } from '../uploads/upload-storage';
 import { TenantNotificationsService } from '../tenant-notifications/tenant-notifications.service';
 import type { SubmitPaymentConfirmationDto } from './dto/submit-payment-confirmation.dto';
 import { PaymentConfirmationStatus } from './payment-confirmation-status.enum';
@@ -65,7 +65,9 @@ export type TenantPaymentHistoryRow = {
   description: string;
 };
 
-const RECEIPT_PATH_PREFIX = PAYMENT_RECEIPT_UPLOAD_PATH_PREFIX;
+function paymentTypeLabel(type: PaymentType): string {
+  return type === PaymentType.SERVICE_CHARGE ? 'service charge' : 'rent';
+}
 
 function pgErrorCode(err: unknown): string | undefined {
   if (err instanceof QueryFailedError) {
@@ -73,10 +75,6 @@ function pgErrorCode(err: unknown): string | undefined {
     return d?.code;
   }
   return undefined;
-}
-
-function paymentTypeLabel(type: PaymentType): string {
-  return type === PaymentType.SERVICE_CHARGE ? 'service charge' : 'rent';
 }
 
 function parseAmountDisplay(raw: string | null | undefined): number {
@@ -182,11 +180,9 @@ export class TenantPaymentConfirmationsService {
     dto: SubmitPaymentConfirmationDto,
   ): Promise<SubmittedPaymentConfirmation> {
     const receiptPath = dto.receiptPath.trim();
-    if (!receiptPath.startsWith(RECEIPT_PATH_PREFIX)) {
-      throw new BadRequestException('Invalid receipt path');
-    }
-    const filename = receiptPath.slice(RECEIPT_PATH_PREFIX.length);
-    if (!filename || filename.includes('/') || filename.includes('..')) {
+    try {
+      assertPaymentReceiptPath(receiptPath);
+    } catch {
       throw new BadRequestException('Invalid receipt path');
     }
 

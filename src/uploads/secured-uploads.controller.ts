@@ -40,4 +40,19 @@ export class SecuredUploadsController {
     res.setHeader('Cache-Control', 'private, no-store');
     stream.pipe(res);
   }
+
+  @Get('inspections/:filename')
+  async inspectionPhoto(
+    @Req() req: AuthedRequest,
+    @Param('filename') filename: string,
+    @Res() res: Response,
+  ): Promise<void> {
+    const { stream, contentType } = await this.securedUploadsService.openInspectionPhoto(
+      req.user,
+      filename,
+    );
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'private, no-store');
+    stream.pipe(res);
+  }
 }

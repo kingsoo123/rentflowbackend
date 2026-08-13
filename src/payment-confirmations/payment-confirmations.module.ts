@@ -8,6 +8,7 @@ import { ServiceChargesModule } from '../service-charges/service-charges.module'
 import { TenantNotificationsModule } from '../tenant-notifications/tenant-notifications.module';
 import { ManagersModule } from '../managers/managers.module';
 import { MaintenanceRealtimeModule } from '../maintenance/maintenance-realtime.module';
+import { CloudinaryModule } from '../uploads/cloudinary.module';
 import { Property } from '../properties/property.entity';
 import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
@@ -26,6 +27,7 @@ import { TenantPaymentConfirmationsService } from './tenant-payment-confirmation
     FirebaseModule,
     TenantNotificationsModule,
     ServiceChargesModule,
+    CloudinaryModule,
   ],
   controllers: [TenantPaymentConfirmationsController, ManagersPaymentConfirmationsController],
   providers: [

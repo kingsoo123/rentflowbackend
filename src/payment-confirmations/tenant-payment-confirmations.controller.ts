@@ -16,30 +16,19 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync } from 'node:fs';
-import { extname, join } from 'node:path';
 import type { Request } from 'express';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import type { JwtAccessPayload } from '../auth/types/jwt-payload';
 import { UserRole } from '../users/user-role.enum';
+import { CloudinaryService } from '../uploads/cloudinary.service';
+import {
+  imageUploadMulterOptions,
+  type MemoryUploadedFile,
+} from '../uploads/multer-memory';
 import { SubmitPaymentConfirmationDto } from './dto/submit-payment-confirmation.dto';
 import { TenantPaymentConfirmationsService } from './tenant-payment-confirmations.service';
-
-function resolvePublicBaseUrl(req: Request): string {
-  const fromEnv = process.env.PUBLIC_BASE_URL?.replace(/\/+$/, '');
-  if (fromEnv) {
-    return fromEnv;
-  }
-  const xfProto = req.headers['x-forwarded-proto'];
-  const proto =
-    typeof xfProto === 'string' ? xfProto.split(',')[0]?.trim() || 'http' : 'http';
-  const host = req.get('host') ?? 'localhost:3002';
-  return `${proto}://${host}`;
-}
 
 @Controller('tenants/payment-confirmations')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -47,6 +36,7 @@ function resolvePublicBaseUrl(req: Request): string {
 export class TenantPaymentConfirmationsController {
   constructor(
     private readonly tenantPaymentConfirmationsService: TenantPaymentConfirmationsService,
+    private readonly cloudinaryService: CloudinaryService,
   ) {}
 
   @Get('collection-account')
@@ -56,39 +46,17 @@ export class TenantPaymentConfirmationsController {
 
   @Post('upload')
   @HttpCode(HttpStatus.CREATED)
-  @UseInterceptors(
-    FileInterceptor('file', {
-      storage: diskStorage({
-        destination: (_req, _file, cb) => {
-          const dir = join(process.cwd(), 'uploads', 'payment-receipts');
-          if (!existsSync(dir)) {
-            mkdirSync(dir, { recursive: true });
-          }
-          cb(null, dir);
-        },
-        filename: (_req, file, cb) => {
-          const raw = extname(file.originalname).toLowerCase();
-          const ext = ['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(raw) ? raw : '.jpg';
-          cb(null, `${randomUUID()}${ext}`);
-        },
-      }),
-      limits: { fileSize: 5 * 1024 * 1024, files: 1 },
-      fileFilter: (_req, file, cb) => {
-        if (!file.mimetype.startsWith('image/')) {
-          cb(new Error('Only image files are allowed'), false);
-          return;
-        }
-        cb(null, true);
-      },
-    }),
-  )
-  upload(@Req() req: Request, @UploadedFile() file: { filename: string } | undefined) {
-    if (!file) {
+  @UseInterceptors(FileInterceptor('file', imageUploadMulterOptions))
+  async upload(@UploadedFile() file: MemoryUploadedFile | undefined) {
+    if (!file?.buffer?.length) {
       throw new BadRequestException('Missing file field "file"');
     }
-    const path = `/api/uploads/payment-receipts/${file.filename}`;
-    const base = resolvePublicBaseUrl(req);
-    return { path, url: `${base}${path}` };
+    const uploaded = await this.cloudinaryService.uploadImageBuffer(
+      file.buffer,
+      'payment-receipts',
+      { filenameHint: file.originalname, mimeType: file.mimetype },
+    );
+    return { path: uploaded.path, url: uploaded.url };
   }
 
   @Post()

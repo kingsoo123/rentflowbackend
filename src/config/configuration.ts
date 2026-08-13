@@ -5,6 +5,11 @@ export interface AppConfiguration {
   port: number;
   nodeEnv: string;
   corsOrigin: string | string[] | true;
+  cloudinary: {
+    cloudName: string | null;
+    apiKey: string | null;
+    apiSecret: string | null;
+  };
 }
 
 export default (): AppConfiguration => {
@@ -21,6 +26,11 @@ export default (): AppConfiguration => {
     port,
     nodeEnv,
     corsOrigin: parseCorsOrigin(process.env.CORS_ORIGIN),
+    cloudinary: {
+      cloudName: process.env.CLOUDINARY_CLOUD_NAME?.trim() || null,
+      apiKey: process.env.CLOUDINARY_API_KEY?.trim() || null,
+      apiSecret: process.env.CLOUDINARY_API_SECRET?.trim() || null,
+    },
   };
 };
 

@@ -22,6 +22,10 @@ export function configureApp(app: INestApplication): void {
   if (!existsSync(paymentReceiptsDir)) {
     mkdirSync(paymentReceiptsDir, { recursive: true });
   }
+  const inspectionsDir = join(process.cwd(), 'uploads', 'inspections');
+  if (!existsSync(inspectionsDir)) {
+    mkdirSync(inspectionsDir, { recursive: true });
+  }
 
   app.useGlobalPipes(
     new ValidationPipe({

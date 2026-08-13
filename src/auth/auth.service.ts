@@ -2,7 +2,6 @@ import { randomBytes } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -23,9 +22,6 @@ import { UserRole } from '../users/user-role.enum';
 import { sanitizeUserText, sanitizeUserTextRecord } from '../common/sanitize-user-text';
 import { normalizeSignupPhone } from '../common/phone-signup';
 import { LoginRateLimitService } from './login-rate-limit.service';
-
-/** Temporary access lock — only this email may sign up or log in via public auth. */
-const AUTH_ALLOWED_EMAIL = 'nathan@gmail.com';
 
 export type SignupResult = {
   id: string;
@@ -71,7 +67,6 @@ export class AuthService {
   ) {}
 
   async login(dto: LoginDto, clientIp: string): Promise<LoginResult> {
-    this.assertAuthEmailAllowed(dto.email);
     this.loginRateLimit.assertCanAttempt(dto.email, clientIp);
 
     const remember = dto.remember === true;
@@ -121,8 +116,6 @@ export class AuthService {
   }
 
   async signup(dto: SignupDto): Promise<SignupResult> {
-    this.assertAuthEmailAllowed(dto.email);
-
     if (dto.password !== dto.confirmPassword) {
       throw new BadRequestException('Passwords do not match');
     }
@@ -310,16 +303,6 @@ export class AuthService {
   /** Internal-only password so `password_hash` is populated; not returned to clients. */
   private generateSecureProvisioningPassword(): string {
     return randomBytes(18).toString('base64url');
-  }
-
-  private assertAuthEmailAllowed(email: string): void {
-    const normalized =
-      typeof email === 'string' ? email.trim().toLowerCase() : '';
-    if (normalized !== AUTH_ALLOWED_EMAIL) {
-      throw new ForbiddenException(
-        'Access is restricted. This email is not allowed to sign in or register.',
-      );
-    }
   }
 
   private async persistNewUser(params: {

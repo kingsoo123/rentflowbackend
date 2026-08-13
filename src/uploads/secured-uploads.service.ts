@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { createReadStream, type ReadStream } from 'node:fs';
 import { Repository } from 'typeorm';
 import type { JwtAccessPayload } from '../auth/types/jwt-payload';
+import { InspectionRecord } from '../inspections/inspection-record.entity';
 import { MaintenanceRequest } from '../maintenance/maintenance-request.entity';
 import { ManagersTenantsService } from '../managers/managers-tenants.service';
 import { TenantPaymentConfirmation } from '../payment-confirmations/tenant-payment-confirmation.entity';
@@ -15,8 +16,10 @@ import {
   assertSafeUploadFilename,
   assertUploadFileExists,
   contentTypeForUploadFilename,
+  INSPECTION_UPLOAD_PATH_PREFIX,
   MAINTENANCE_UPLOAD_PATH_PREFIX,
   paymentReceiptUploadRelativePath,
+  resolveInspectionDiskPath,
   resolveMaintenanceDiskPath,
   resolvePaymentReceiptDiskPath,
 } from './upload-storage';
@@ -28,6 +31,8 @@ export class SecuredUploadsService {
     private readonly confirmationsRepository: Repository<TenantPaymentConfirmation>,
     @InjectRepository(MaintenanceRequest)
     private readonly maintenanceRepository: Repository<MaintenanceRequest>,
+    @InjectRepository(InspectionRecord)
+    private readonly inspectionsRepository: Repository<InspectionRecord>,
     private readonly managersTenantsService: ManagersTenantsService,
   ) {}
 
@@ -59,6 +64,28 @@ export class SecuredUploadsService {
     };
   }
 
+  async openInspectionPhoto(
+    user: JwtAccessPayload,
+    filename: string,
+  ): Promise<{ stream: ReadStream; contentType: string }> {
+    const row = await this.loadInspectionRow(filename);
+    if (row.tenantId) {
+      await this.assertUserCanAccessTenantUpload(user, row.tenantId);
+    } else if (user.role === UserRole.PROPERTY_MANAGER) {
+      if (user.sub !== row.managerUserId) {
+        throw new ForbiddenException('You do not have access to this file');
+      }
+    } else {
+      throw new ForbiddenException('You do not have access to this file');
+    }
+    const diskPath = resolveInspectionDiskPath(filename);
+    assertUploadFileExists(diskPath);
+    return {
+      stream: createReadStream(diskPath),
+      contentType: contentTypeForUploadFilename(filename),
+    };
+  }
+
   private async loadPaymentReceiptRow(filename: string): Promise<TenantPaymentConfirmation> {
     assertSafeUploadFilename(filename);
     const receiptPath = paymentReceiptUploadRelativePath(filename);
@@ -77,6 +104,19 @@ export class SecuredUploadsService {
     const row = await this.maintenanceRepository
       .createQueryBuilder('m')
       .where('m.attachment_urls::text ILIKE :suffix', { suffix })
+      .getOne();
+    if (!row) {
+      throw new NotFoundException('File not found');
+    }
+    return row;
+  }
+
+  private async loadInspectionRow(filename: string): Promise<InspectionRecord> {
+    assertSafeUploadFilename(filename);
+    const suffix = `%${INSPECTION_UPLOAD_PATH_PREFIX}${filename}%`;
+    const row = await this.inspectionsRepository
+      .createQueryBuilder('i')
+      .where('i.photo_urls::text ILIKE :suffix', { suffix })
       .getOne();
     if (!row) {
       throw new NotFoundException('File not found');

@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { CloudinaryModule } from '../uploads/cloudinary.module';
 import { ManagersModule } from '../managers/managers.module';
 import { MaintenanceRequest } from './maintenance-request.entity';
 import { MaintenanceRealtimeModule } from './maintenance-realtime.module';
@@ -14,6 +15,7 @@ import { TenantMaintenanceRequestsService } from './tenant-maintenance-requests.
     AuthModule,
     ManagersModule,
     MaintenanceRealtimeModule,
+    CloudinaryModule,
     TypeOrmModule.forFeature([MaintenanceRequest]),
   ],
   controllers: [TenantMaintenanceRequestsController],

@@ -7,6 +7,7 @@ import { configuration, createTypeOrmOptions, validateEnv } from './config';
 import { ArtisansModule } from './artisans/artisans.module';
 import { AuthModule } from './auth/auth.module';
 import { HealthModule } from './health/health.module';
+import { InspectionsModule } from './inspections/inspections.module';
 import { ManagersModule } from './managers/managers.module';
 import { LeaseFormsModule } from './lease-forms/lease-forms.module';
 import { MaintenanceModule } from './maintenance/maintenance.module';
@@ -47,6 +48,7 @@ import { SecuredUploadsModule } from './uploads/secured-uploads.module';
     FirebaseModule,
     PaymentConfirmationsModule,
     DirectMessagesModule,
+    InspectionsModule,
     SecuredUploadsModule,
   ],
   controllers: [AppController],

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { InspectionRecord } from '../inspections/inspection-record.entity';
 import { MaintenanceRequest } from '../maintenance/maintenance-request.entity';
 import { ManagersModule } from '../managers/managers.module';
 import { TenantPaymentConfirmation } from '../payment-confirmations/tenant-payment-confirmation.entity';
@@ -12,7 +13,11 @@ import { SecuredUploadsService } from './secured-uploads.service';
   imports: [
     AuthModule,
     ManagersModule,
-    TypeOrmModule.forFeature([TenantPaymentConfirmation, MaintenanceRequest]),
+    TypeOrmModule.forFeature([
+      TenantPaymentConfirmation,
+      MaintenanceRequest,
+      InspectionRecord,
+    ]),
   ],
   controllers: [SecuredUploadsController],
   providers: [SecuredUploadsService, JwtAuthGuard],

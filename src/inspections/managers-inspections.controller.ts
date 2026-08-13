@@ -5,6 +5,9 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Patch,
   Post,
   Req,
   UploadedFile,
@@ -23,27 +26,37 @@ import {
   imageUploadMulterOptions,
   type MemoryUploadedFile,
 } from '../uploads/multer-memory';
-import { SubmitMaintenanceRequestDto } from './dto/submit-maintenance-request.dto';
-import { TenantMaintenanceRequestsService } from './tenant-maintenance-requests.service';
+import {
+  CompleteInspectionDto,
+  CreateInspectionDto,
+  UpdateInspectionDto,
+} from './dto/inspection.dto';
+import { InspectionsService } from './inspections.service';
 
-@Controller('tenants/maintenance-requests')
+type AuthedManagerRequest = Request & { user: JwtAccessPayload };
+
+@Controller('managers/inspections')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.TENANT)
-export class TenantMaintenanceRequestsController {
+@Roles(UserRole.PROPERTY_MANAGER)
+export class ManagersInspectionsController {
   constructor(
-    private readonly tenantMaintenanceRequestsService: TenantMaintenanceRequestsService,
+    private readonly inspectionsService: InspectionsService,
     private readonly cloudinaryService: CloudinaryService,
   ) {}
 
   @Get()
-  list(@Req() req: Request & { user: JwtAccessPayload }) {
-    return this.tenantMaintenanceRequestsService.listForTenant(req.user.sub);
+  list(@Req() req: AuthedManagerRequest) {
+    return this.inspectionsService.listForManager(req.user.sub);
   }
 
-  /**
-   * Multipart upload for maintenance photos → Cloudinary.
-   * Returns `path` and `url` (both HTTPS Cloudinary URLs for DB storage / clients).
-   */
+  @Get(':id')
+  get(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: AuthedManagerRequest,
+  ) {
+    return this.inspectionsService.getForManager(req.user.sub, id);
+  }
+
   @Post('upload')
   @HttpCode(HttpStatus.CREATED)
   @UseInterceptors(FileInterceptor('file', imageUploadMulterOptions))
@@ -53,7 +66,7 @@ export class TenantMaintenanceRequestsController {
     }
     const uploaded = await this.cloudinaryService.uploadImageBuffer(
       file.buffer,
-      'maintenance',
+      'inspections',
       { filenameHint: file.originalname, mimeType: file.mimetype },
     );
     return { path: uploaded.path, url: uploaded.url };
@@ -61,13 +74,25 @@ export class TenantMaintenanceRequestsController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  create(
-    @Req() req: Request & { user: JwtAccessPayload },
-    @Body() dto: SubmitMaintenanceRequestDto,
+  create(@Req() req: AuthedManagerRequest, @Body() dto: CreateInspectionDto) {
+    return this.inspectionsService.createForManager(req.user.sub, dto);
+  }
+
+  @Patch(':id')
+  update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateInspectionDto,
+    @Req() req: AuthedManagerRequest,
   ) {
-    return this.tenantMaintenanceRequestsService.createForTenant(
-      req.user.sub,
-      dto,
-    );
+    return this.inspectionsService.updateForManager(req.user.sub, id, dto);
+  }
+
+  @Post(':id/complete')
+  complete(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CompleteInspectionDto,
+    @Req() req: AuthedManagerRequest,
+  ) {
+    return this.inspectionsService.completeForManager(req.user.sub, id, dto);
   }
 }
