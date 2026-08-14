@@ -10,6 +10,7 @@ import { ServiceChargeLine } from '../service-charges/service-charge-line.entity
 import { TenantNotification } from '../tenant-notifications/tenant-notification.entity';
 import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
+import { PropertyUnit } from '../properties/property-unit.entity';
 import { MaintenanceAssignmentsModule } from '../maintenance/maintenance-assignments.module';
 import { MaintenanceRealtimeModule } from '../maintenance/maintenance-realtime.module';
 import { TenantNotificationsModule } from '../tenant-notifications/tenant-notifications.module';
@@ -22,6 +23,7 @@ import { ManagersPortfolioService } from './managers-portfolio.service';
 import { ManagersTaskNotificationsController } from './managers-task-notifications.controller';
 import { ManagersTenantsController } from './managers-tenants.controller';
 import { ManagersTenantsService } from './managers-tenants.service';
+import { ManagersUnitsService } from './managers-units.service';
 import { ManagerArtisanRoster } from './manager-artisan-roster.entity';
 import { ManagersArtisansController } from './managers-artisans.controller';
 import { ManagersArtisansService } from './managers-artisans.service';
@@ -37,6 +39,7 @@ import { ManagersArtisansService } from './managers-artisans.service';
       TenantProfile,
       MaintenanceRequest,
       Property,
+      PropertyUnit,
       TenantNotification,
       TenantPaymentConfirmation,
       ServiceChargeLine,
@@ -56,10 +59,11 @@ import { ManagersArtisansService } from './managers-artisans.service';
     RolesGuard,
     ManagersPortfolioService,
     ManagersTenantsService,
+    ManagersUnitsService,
     ManagersArtisansService,
     ManagersMaintenanceRequestsService,
     ManagerAssistantService,
   ],
-  exports: [ManagersTenantsService],
+  exports: [ManagersTenantsService, ManagersUnitsService],
 })
 export class ManagersModule {}

@@ -69,13 +69,26 @@ export class ManagersTenantsController {
     @Req() req: AuthedManagerRequest,
     @Res({ passthrough: true }) res: Response,
   ) {
-    await this.managersTenantsService.assertCreateTenantProfileAllowedForManager(
-      req.user.sub,
+    const incomingProfile =
       dto.profile && typeof dto.profile === 'object' && !Array.isArray(dto.profile)
         ? (dto.profile as Record<string, unknown>)
-        : undefined,
-    );
-    const { user, updated } = await this.authService.createTenantByManager(dto);
+        : undefined;
+    const email = typeof dto.email === 'string' ? dto.email.trim().toLowerCase() : '';
+    let excludeTenantUserId: string | undefined;
+    if (email) {
+      const existing = await this.managersTenantsService.findTenantUserIdByEmail(email);
+      excludeTenantUserId = existing ?? undefined;
+    }
+    const resolvedProfile =
+      await this.managersTenantsService.assertCreateTenantProfileAllowedForManager(
+        req.user.sub,
+        incomingProfile,
+        excludeTenantUserId,
+      );
+    const { user, updated } = await this.authService.createTenantByManager({
+      ...dto,
+      profile: resolvedProfile ?? {},
+    });
     this.maintenanceRealtime.notifyOccupancyUpdated(req.user.sub);
     res.status(updated ? HttpStatus.OK : HttpStatus.CREATED);
     return user;

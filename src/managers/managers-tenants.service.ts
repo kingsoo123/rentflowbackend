@@ -20,6 +20,7 @@ import { mergeRenewalSummaryFromNotices } from '../tenant-notifications/renewal-
 import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
 import { UserRole } from '../users/user-role.enum';
+import { ManagersUnitsService } from './managers-units.service';
 
 export type TenantListItem = {
   id: string;
@@ -112,6 +113,7 @@ export class ManagersTenantsService {
     private readonly paymentConfirmationsRepository: Repository<TenantPaymentConfirmation>,
     @InjectRepository(ServiceChargeLine)
     private readonly serviceChargeLineRepository: Repository<ServiceChargeLine>,
+    private readonly managersUnitsService: ManagersUnitsService,
   ) {}
 
   /**
@@ -144,10 +146,20 @@ export class ManagersTenantsService {
   async assertCreateTenantProfileAllowedForManager(
     managerUserId: string,
     profile: Record<string, unknown> | undefined,
-  ): Promise<void> {
+    excludeTenantUserId?: string,
+  ): Promise<Record<string, unknown> | undefined> {
     const raw = profile?.['propertyAssigned'];
     const s = typeof raw === 'string' ? raw : '';
     await this.validatePropertyAssignedForManager(managerUserId, s);
+    if (!profile) {
+      return profile;
+    }
+    return this.managersUnitsService.resolveTenantUnitAssignment({
+      managerUserId,
+      propertyName: s,
+      profile,
+      excludeTenantUserId,
+    });
   }
 
   /**
@@ -236,6 +248,16 @@ export class ManagersTenantsService {
       hasAccount: true,
       existsAsTenant: user.role === UserRole.TENANT,
     };
+  }
+
+  /** Tenant user id for this email, if any (used when re-onboarding to keep the same unit). */
+  async findTenantUserIdByEmail(email: string): Promise<string | null> {
+    const normalized = email.trim().toLowerCase();
+    const user = await this.usersRepository.findOne({
+      where: { email: normalized, role: UserRole.TENANT },
+      select: ['id'],
+    });
+    return user?.id ?? null;
   }
 
   async listTenants(
@@ -445,15 +467,21 @@ export class ManagersTenantsService {
         managerUserId,
         typeof pa === 'string' ? pa : String(pa ?? ''),
       );
+      const resolved = await this.managersUnitsService.resolveTenantUnitAssignment({
+        managerUserId,
+        propertyName: typeof pa === 'string' ? pa : String(pa ?? ''),
+        profile: merged,
+        excludeTenantUserId: id,
+      });
 
       if (tp) {
-        tp.profileData = merged;
+        tp.profileData = resolved;
         await this.tenantProfileRepository.save(tp);
       } else {
         await this.tenantProfileRepository.save(
           this.tenantProfileRepository.create({
             userId: id,
-            profileData: merged,
+            profileData: resolved,
           }),
         );
       }

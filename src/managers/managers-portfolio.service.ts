@@ -11,6 +11,7 @@ import { QueryFailedError, Repository } from 'typeorm';
 import type { CreatePropertyDto } from './dto/create-property.dto';
 import type { UpdatePropertyDto } from './dto/update-property.dto';
 import { Property } from '../properties/property.entity';
+import { PropertyUnit } from '../properties/property-unit.entity';
 import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
 import { UserRole } from '../users/user-role.enum';
@@ -90,6 +91,8 @@ export class ManagersPortfolioService {
     private readonly usersRepository: Repository<User>,
     @InjectRepository(Property)
     private readonly propertyRepository: Repository<Property>,
+    @InjectRepository(PropertyUnit)
+    private readonly unitRepository: Repository<PropertyUnit>,
   ) {}
 
   private async assertPropertyManager(managerUserId: string): Promise<User> {
@@ -207,15 +210,40 @@ export class ManagersPortfolioService {
     }
 
     let total = 0;
+    const unitsByPropertyId = new Map<string, number>();
+    if (properties.length > 0) {
+      const unitCounts = await this.unitRepository
+        .createQueryBuilder('u')
+        .select('u.propertyId', 'propertyId')
+        .addSelect('COUNT(*)', 'cnt')
+        .where('u.propertyId IN (:...ids)', { ids: properties.map((p) => p.id) })
+        .groupBy('u.propertyId')
+        .getRawMany<{ propertyId: string; cnt: string }>();
+      for (const row of unitCounts) {
+        unitsByPropertyId.set(row.propertyId, Number.parseInt(row.cnt, 10) || 0);
+      }
+    }
+
     for (const p of properties) {
       const occ = occupiedByPropertyId.get(p.id) ?? 0;
+      const unitRows = unitsByPropertyId.get(p.id) ?? 0;
       const declared =
         typeof p.unitCount === 'number' && Number.isFinite(p.unitCount)
           ? Math.max(0, Math.floor(p.unitCount))
           : null;
-      // Until unit counts are set, capacity tracks assigned tenants (vacant stays 0).
-      const capacity = declared === null ? occ : Math.max(declared, occ);
-      total += capacity;
+
+      // Capacity priority:
+      // 1) explicit unit_count on the property (e.g. 20 rentable units)
+      // 2) else first-class unit catalog size
+      // 3) else occupied only (vacant stays 0 until capacity is known)
+      // Always at least `occ` so over-assignment never yields negative vacant.
+      if (declared !== null) {
+        total += Math.max(declared, unitRows, occ);
+      } else if (unitRows > 0) {
+        total += Math.max(unitRows, occ);
+      } else {
+        total += occ;
+      }
     }
 
     const vacant = Math.max(0, total - occupied);
