@@ -472,6 +472,244 @@ export class TenantPaymentConfirmationsService {
     }
   }
 
+  /**
+   * Tenants with unpaid current-month rent and/or service charges past their due date.
+   * Due day defaults to the 1st, or the day-of-month from leaseStartDate / moveInDate.
+   */
+  async listRentArrearsForManager(managerUserId: string): Promise<{
+    rows: {
+      tenantId: string;
+      tenantName: string;
+      tenantEmail: string;
+      unitLabel: string | null;
+      propertyName: string | null;
+      amount: number;
+      amountDisplay: string;
+      rentDue: number;
+      serviceChargeDue: number;
+      daysLate: number;
+      agingBucket: '1-30' | '31-60' | '61+';
+      dueDate: string;
+    }[];
+    summary: {
+      totalOutstanding: number;
+      tenantCount: number;
+      aging1to30: number;
+      aging31to60: number;
+      aging61plus: number;
+    };
+  }> {
+    const rosterIds = await this.managersTenantsService.listTenantIdsOnManagerRoster(
+      managerUserId,
+      500,
+    );
+    if (rosterIds.length === 0) {
+      return {
+        rows: [],
+        summary: {
+          totalOutstanding: 0,
+          tenantCount: 0,
+          aging1to30: 0,
+          aging31to60: 0,
+          aging61plus: 0,
+        },
+      };
+    }
+
+    const today = new Date();
+    const todayUtc = Date.UTC(
+      today.getUTCFullYear(),
+      today.getUTCMonth(),
+      today.getUTCDate(),
+    );
+
+    const users = await this.usersRepository.find({
+      where: { id: In(rosterIds) },
+      select: ['id', 'fullName', 'email'],
+    });
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
+    const profiles = await this.tenantProfileRepository.find({
+      where: { userId: In(rosterIds) },
+    });
+    const profileMap = new Map(profiles.map((p) => [p.userId, p]));
+
+    const rows: {
+      tenantId: string;
+      tenantName: string;
+      tenantEmail: string;
+      unitLabel: string | null;
+      propertyName: string | null;
+      amount: number;
+      amountDisplay: string;
+      rentDue: number;
+      serviceChargeDue: number;
+      daysLate: number;
+      agingBucket: '1-30' | '31-60' | '61+';
+      dueDate: string;
+    }[] = [];
+
+    await Promise.all(
+      rosterIds.map(async (tenantId) => {
+        const [upcoming, serviceCharges] = await Promise.all([
+          this.tenantNotificationsService.getUpcomingRentSummary(tenantId),
+          this.serviceChargesService.listForTenant(tenantId),
+        ]);
+
+        const rentDue =
+          upcoming.source === 'paid_current_month'
+            ? 0
+            : parseAmountDisplay(upcoming.monthlyRentDisplay);
+        const serviceChargeDue =
+          serviceCharges.source === 'active' && serviceCharges.lines.length > 0
+            ? serviceCharges.lines.reduce(
+                (acc, line) => acc + (Number.isFinite(line.amount) ? line.amount : 0),
+                0,
+              )
+            : 0;
+        const amount = Math.round((rentDue + serviceChargeDue) * 100) / 100;
+        if (amount <= 0) {
+          return;
+        }
+
+        const profileRow = profileMap.get(tenantId);
+        const profile =
+          profileRow?.profileData &&
+          typeof profileRow.profileData === 'object' &&
+          !Array.isArray(profileRow.profileData)
+            ? (profileRow.profileData as Record<string, unknown>)
+            : undefined;
+
+        const dueDay = this.rentDueDayFromProfile(profile);
+        const dueDate = this.currentMonthDueDate(dueDay);
+        const daysLate = Math.floor((todayUtc - dueDate.getTime()) / 86_400_000);
+        if (daysLate < 1) {
+          return;
+        }
+
+        const agingBucket: '1-30' | '31-60' | '61+' =
+          daysLate <= 30 ? '1-30' : daysLate <= 60 ? '31-60' : '61+';
+        const user = userMap.get(tenantId);
+        const unitLabel = this.strFromProfile(profile, 'unitNumber');
+        const propertyName = this.strFromProfile(profile, 'propertyAssigned');
+
+        rows.push({
+          tenantId,
+          tenantName: user?.fullName?.trim() || user?.email?.trim() || 'Tenant',
+          tenantEmail: user?.email?.trim() || '',
+          unitLabel,
+          propertyName,
+          amount,
+          amountDisplay: this.formatMoneyDisplay(amount),
+          rentDue,
+          serviceChargeDue,
+          daysLate,
+          agingBucket,
+          dueDate: dueDate.toISOString().slice(0, 10),
+        });
+      }),
+    );
+
+    rows.sort((a, b) => b.daysLate - a.daysLate || b.amount - a.amount);
+
+    let aging1to30 = 0;
+    let aging31to60 = 0;
+    let aging61plus = 0;
+    let totalOutstanding = 0;
+    for (const row of rows) {
+      totalOutstanding += row.amount;
+      if (row.agingBucket === '1-30') aging1to30 += 1;
+      else if (row.agingBucket === '31-60') aging31to60 += 1;
+      else aging61plus += 1;
+    }
+
+    return {
+      rows,
+      summary: {
+        totalOutstanding: Math.round(totalOutstanding * 100) / 100,
+        tenantCount: rows.length,
+        aging1to30,
+        aging31to60,
+        aging61plus,
+      },
+    };
+  }
+
+  async remindRentArrearsForManager(
+    managerUserId: string,
+    tenantId: string,
+  ): Promise<{ ok: true; tenantId: string }> {
+    await this.managersTenantsService.assertTenantBelongsToManager(
+      managerUserId,
+      tenantId,
+    );
+    const arrears = await this.listRentArrearsForManager(managerUserId);
+    const row = arrears.rows.find((r) => r.tenantId === tenantId);
+    if (!row) {
+      throw new BadRequestException(
+        'This tenant is not currently in arrears (no past-due balance).',
+      );
+    }
+
+    const headline = 'Rent payment reminder';
+    const body =
+      `Your property manager sent a reminder about an outstanding balance of ${row.amountDisplay}` +
+      ` (${row.daysLate} day${row.daysLate === 1 ? '' : 's'} past due).` +
+      ` Open Pay bills on your dashboard to submit a payment receipt.`;
+
+    await this.tenantNotificationsService.createManagerTaskNotificationsForTenants({
+      tenantIds: [tenantId],
+      headline,
+      body,
+    });
+
+    return { ok: true, tenantId };
+  }
+
+  private strFromProfile(
+    profile: Record<string, unknown> | undefined,
+    key: string,
+  ): string | null {
+    if (!profile) return null;
+    const v = profile[key];
+    if (v === undefined || v === null) return null;
+    const s = String(v).trim();
+    return s === '' ? null : s;
+  }
+
+  private rentDueDayFromProfile(
+    profile: Record<string, unknown> | undefined,
+  ): number {
+    const leaseStart =
+      this.strFromProfile(profile, 'leaseStartDate') ||
+      this.strFromProfile(profile, 'moveInDate');
+    if (leaseStart && /^\d{4}-\d{2}-\d{2}/.test(leaseStart)) {
+      const day = Number.parseInt(leaseStart.slice(8, 10), 10);
+      if (Number.isFinite(day) && day >= 1 && day <= 31) {
+        return day;
+      }
+    }
+    return 1;
+  }
+
+  private currentMonthDueDate(dueDay: number): Date {
+    const now = new Date();
+    const y = now.getUTCFullYear();
+    const m = now.getUTCMonth();
+    const lastDay = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+    const day = Math.min(Math.max(1, dueDay), lastDay);
+    return new Date(Date.UTC(y, m, day));
+  }
+
+  private formatMoneyDisplay(amount: number): string {
+    return amount.toLocaleString('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    });
+  }
+
   async getRevenueBreakdownForManager(
     managerUserId: string,
     card: 'collected-mtd' | 'scheduled-mtd' | 'closed-last-month',

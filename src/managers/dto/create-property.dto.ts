@@ -1,4 +1,13 @@
-import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+  MinLength,
+} from 'class-validator';
 import { SanitizeText, SanitizeTextOptional } from '../../common/decorators/sanitize-text.decorator';
 
 export class CreatePropertyDto {
@@ -37,4 +46,11 @@ export class CreatePropertyDto {
   @IsString()
   @MaxLength(120)
   country?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(10000)
+  unitCount?: number;
 }

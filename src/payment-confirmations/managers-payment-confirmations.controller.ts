@@ -7,6 +7,7 @@ import {
   Param,
   ParseUUIDPipe,
   Patch,
+  Post,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -44,6 +45,23 @@ export class ManagersPaymentConfirmationsController {
   @Get('closed-last-month')
   closedLastMonth(@Req() req: Request & { user: JwtAccessPayload }) {
     return this.tenantPaymentConfirmationsService.getClosedLastMonthForManager(req.user.sub);
+  }
+
+  @Get('rent-arrears')
+  rentArrears(@Req() req: Request & { user: JwtAccessPayload }) {
+    return this.tenantPaymentConfirmationsService.listRentArrearsForManager(req.user.sub);
+  }
+
+  @Post('rent-arrears/:tenantId/remind')
+  @HttpCode(HttpStatus.OK)
+  remindArrears(
+    @Req() req: Request & { user: JwtAccessPayload },
+    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+  ) {
+    return this.tenantPaymentConfirmationsService.remindRentArrearsForManager(
+      req.user.sub,
+      tenantId,
+    );
   }
 
   @Get('breakdown/:card')

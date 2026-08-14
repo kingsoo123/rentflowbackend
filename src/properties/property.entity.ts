@@ -51,6 +51,10 @@ export class Property {
   @Column({ name: 'collection_payment_instructions', type: 'text', nullable: true })
   collectionPaymentInstructions: string | null;
 
+  /** Optional total rentable units for this property (used for occupancy vacant %). */
+  @Column({ name: 'unit_count', type: 'int', nullable: true })
+  unitCount: number | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }

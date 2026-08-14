@@ -11,6 +11,7 @@ import { QueryFailedError, Repository } from 'typeorm';
 import type { CreatePropertyDto } from './dto/create-property.dto';
 import type { UpdatePropertyDto } from './dto/update-property.dto';
 import { Property } from '../properties/property.entity';
+import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
 import { UserRole } from '../users/user-role.enum';
 
@@ -26,13 +27,27 @@ export type ManagerPropertyDetail = {
   collectionAccountName: string | null;
   collectionAccountNumber: string | null;
   collectionPaymentInstructions: string | null;
+  unitCount: number | null;
   createdAt: string;
+};
+
+export type ManagerOccupancySummary = {
+  occupied: number;
+  total: number;
+  vacant: number;
+  notice: number;
+  pct: number;
+  propertyCount: number;
+  tenantCount: number;
 };
 
 export type ManagerPortfolioSummary = {
   accountName: string;
   propertyCount: number;
+  occupancy: ManagerOccupancySummary;
 };
+
+const NOTICE_WINDOW_DAYS = 60;
 
 function pgErrorCode(err: unknown): string | undefined {
   if (err instanceof QueryFailedError) {
@@ -48,6 +63,22 @@ function emptyToNull(s: string | undefined): string | null {
   }
   const t = String(s).trim();
   return t === '' ? null : t;
+}
+
+function parseLeaseEndDate(raw: unknown): Date | null {
+  if (typeof raw !== 'string') {
+    return null;
+  }
+  const t = raw.trim();
+  if (!/^\d{4}-\d{2}-\d{2}/.test(t)) {
+    return null;
+  }
+  const d = new Date(`${t.slice(0, 10)}T12:00:00.000Z`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function startOfUtcDay(d: Date): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 }
 
 @Injectable()
@@ -84,18 +115,134 @@ export class ManagersPortfolioService {
       collectionAccountName: p.collectionAccountName,
       collectionAccountNumber: p.collectionAccountNumber,
       collectionPaymentInstructions: p.collectionPaymentInstructions,
+      unitCount: p.unitCount ?? null,
       createdAt: p.createdAt.toISOString(),
+    };
+  }
+
+  private async computeOccupancy(
+    managerUserId: string,
+    properties: Property[],
+  ): Promise<ManagerOccupancySummary> {
+    const propertyCount = properties.length;
+    if (propertyCount === 0) {
+      return {
+        occupied: 0,
+        total: 0,
+        vacant: 0,
+        notice: 0,
+        pct: 0,
+        propertyCount: 0,
+        tenantCount: 0,
+      };
+    }
+
+    const nameToProperty = new Map<string, Property>();
+    for (const p of properties) {
+      nameToProperty.set(p.name.trim().toLowerCase(), p);
+    }
+
+    const roster = await this.usersRepository
+      .createQueryBuilder('u')
+      .leftJoin(TenantProfile, 'tp', 'tp.userId = u.id')
+      .select('u.id', 'id')
+      .addSelect('tp.profile_data', 'profileData')
+      .where('u.role = :role', { role: UserRole.TENANT })
+      .andWhere(
+        `EXISTS (
+          SELECT 1 FROM properties p
+          WHERE p.manager_user_id = :managerUserId
+            AND LOWER(TRIM(COALESCE(tp.profile_data->>'propertyAssigned',''))) = LOWER(TRIM(p.name))
+        )`,
+        { managerUserId },
+      )
+      .getRawMany<{ id: string; profileData: Record<string, unknown> | string | null }>();
+
+    const occupiedByPropertyId = new Map<string, number>();
+    for (const p of properties) {
+      occupiedByPropertyId.set(p.id, 0);
+    }
+
+    const today = startOfUtcDay(new Date());
+    const noticeUntil = new Date(today);
+    noticeUntil.setUTCDate(noticeUntil.getUTCDate() + NOTICE_WINDOW_DAYS);
+
+    let notice = 0;
+    let occupied = 0;
+
+    for (const row of roster) {
+      let profile: Record<string, unknown> = {};
+      if (row.profileData && typeof row.profileData === 'object' && !Array.isArray(row.profileData)) {
+        profile = row.profileData;
+      } else if (typeof row.profileData === 'string') {
+        try {
+          const parsed = JSON.parse(row.profileData) as unknown;
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            profile = parsed as Record<string, unknown>;
+          }
+        } catch {
+          profile = {};
+        }
+      }
+
+      const assigned =
+        typeof profile.propertyAssigned === 'string'
+          ? profile.propertyAssigned.trim().toLowerCase()
+          : '';
+      const prop = assigned ? nameToProperty.get(assigned) : undefined;
+      if (!prop) {
+        continue;
+      }
+
+      occupied += 1;
+      occupiedByPropertyId.set(prop.id, (occupiedByPropertyId.get(prop.id) ?? 0) + 1);
+
+      const end = parseLeaseEndDate(profile.leaseEndDate);
+      if (end) {
+        const endDay = startOfUtcDay(end);
+        if (endDay.getTime() >= today.getTime() && endDay.getTime() <= noticeUntil.getTime()) {
+          notice += 1;
+        }
+      }
+    }
+
+    let total = 0;
+    for (const p of properties) {
+      const occ = occupiedByPropertyId.get(p.id) ?? 0;
+      const declared =
+        typeof p.unitCount === 'number' && Number.isFinite(p.unitCount)
+          ? Math.max(0, Math.floor(p.unitCount))
+          : null;
+      // Until unit counts are set, capacity tracks assigned tenants (vacant stays 0).
+      const capacity = declared === null ? occ : Math.max(declared, occ);
+      total += capacity;
+    }
+
+    const vacant = Math.max(0, total - occupied);
+    const pct = total > 0 ? Math.round((occupied / total) * 1000) / 10 : 0;
+
+    return {
+      occupied,
+      total,
+      vacant,
+      notice,
+      pct,
+      propertyCount,
+      tenantCount: occupied,
     };
   }
 
   async getPortfolioSummary(managerUserId: string): Promise<ManagerPortfolioSummary> {
     const user = await this.assertPropertyManager(managerUserId);
-    const propertyCount = await this.propertyRepository.count({
+    const properties = await this.propertyRepository.find({
       where: { managerUserId },
+      order: { name: 'ASC' },
     });
+    const occupancy = await this.computeOccupancy(managerUserId, properties);
     return {
       accountName: user.fullName,
-      propertyCount,
+      propertyCount: properties.length,
+      occupancy,
     };
   }
 
@@ -115,6 +262,10 @@ export class ManagersPortfolioService {
     dto: CreatePropertyDto,
   ): Promise<ManagerPropertyDetail> {
     await this.assertPropertyManager(managerUserId);
+    const unitCount =
+      dto.unitCount !== undefined && Number.isFinite(dto.unitCount)
+        ? Math.max(1, Math.floor(dto.unitCount))
+        : null;
     const row = this.propertyRepository.create({
       managerUserId,
       name: dto.name.trim(),
@@ -123,6 +274,7 @@ export class ManagersPortfolioService {
       stateRegion: emptyToNull(dto.stateRegion),
       postalCode: emptyToNull(dto.postalCode),
       country: emptyToNull(dto.country),
+      unitCount,
     });
     try {
       const saved = await this.propertyRepository.save(row);
@@ -167,7 +319,8 @@ export class ManagersPortfolioService {
       dto.collectionBankName !== undefined ||
       dto.collectionAccountName !== undefined ||
       dto.collectionAccountNumber !== undefined ||
-      dto.collectionPaymentInstructions !== undefined;
+      dto.collectionPaymentInstructions !== undefined ||
+      dto.unitCount !== undefined;
     if (!hasAny) {
       throw new BadRequestException('No updates provided');
     }
@@ -200,6 +353,13 @@ export class ManagersPortfolioService {
     }
     if (dto.collectionPaymentInstructions !== undefined) {
       row.collectionPaymentInstructions = emptyToNull(dto.collectionPaymentInstructions);
+    }
+    if (dto.unitCount !== undefined) {
+      if (dto.unitCount === null) {
+        row.unitCount = null;
+      } else if (Number.isFinite(dto.unitCount)) {
+        row.unitCount = Math.max(1, Math.floor(dto.unitCount));
+      }
     }
     try {
       const saved = await this.propertyRepository.save(row);

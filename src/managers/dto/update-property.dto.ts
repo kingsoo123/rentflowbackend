@@ -1,4 +1,14 @@
-import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+  MinLength,
+  ValidateIf,
+} from 'class-validator';
 import { SanitizeTextOptional } from '../../common/decorators/sanitize-text.decorator';
 
 export class UpdatePropertyDto {
@@ -62,4 +72,13 @@ export class UpdatePropertyDto {
   @IsString()
   @MaxLength(4000)
   collectionPaymentInstructions?: string;
+
+  /** Pass null to clear. */
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(10000)
+  unitCount?: number | null;
 }
