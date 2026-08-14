@@ -39,6 +39,20 @@ export class MaintenanceRealtimeService {
     }
   }
 
+  notifyLeaseAwaitingCountersign(
+    payload: { id: string; tenantId: string; tenantName: string; title: string },
+    managerUserIds: string[],
+  ): void {
+    if (!this.namespace || managerUserIds.length === 0) {
+      return;
+    }
+    for (const managerUserId of managerUserIds) {
+      this.namespace
+        .to(`manager:${managerUserId}`)
+        .emit('lease:awaiting_countersign', payload);
+    }
+  }
+
   notifyPaymentSubmitted(
     payload: {
       id: string;
