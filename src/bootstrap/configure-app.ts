@@ -39,5 +39,9 @@ export function configureApp(app: INestApplication): void {
   const corsOrigin = configService.get<string | string[] | boolean>(
     'corsOrigin',
   );
-  app.enableCors({ origin: corsOrigin ?? true });
+  app.enableCors({
+    origin: corsOrigin ?? true,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+  });
 }

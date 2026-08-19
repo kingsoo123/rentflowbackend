@@ -62,7 +62,7 @@ Add a top-level `databases:` block per [Render blueprint databases](https://rend
 
 | Variable | Description |
 |----------|-------------|
-| `CORS_ORIGIN` | Comma-separated list of allowed browser origins for your frontend (e.g. `https://your-app.vercel.app` or `https://rent-pilot.onrender.com`). If omitted in development the API allows all origins; in production you should restrict this to your real frontend URL(s). |
+| `CORS_ORIGIN` | Comma-separated list of allowed browser origins (scheme + host, no path). Example: `https://estateman.netlify.app,http://localhost:3000`. If omitted in development the API allows all origins; in production set this to your real frontend URL(s). The Netlify origin is also allowed by default in code. |
 
 Render injects **`PORT`** automatically; the app listens on `process.env.PORT` (local default in code is **3002** if unset; Render will override).
 

@@ -34,16 +34,23 @@ export default (): AppConfiguration => {
   };
 };
 
+/** Always allowed so local Next.js and the Netlify site can call the API. */
+const DEFAULT_BROWSER_ORIGINS = [
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'https://estateman.netlify.app',
+];
+
 function parseCorsOrigin(raw: string | undefined): string | string[] | true {
-  if (!raw?.trim()) {
-    return true;
-  }
-  const parts = raw
+  const fromEnv = (raw ?? '')
     .split(',')
-    .map((s) => s.trim())
+    .map((s) => s.trim().replace(/\/+$/, ''))
     .filter(Boolean);
-  if (parts.length === 0) {
+
+  if (fromEnv.length === 0) {
     return true;
   }
+
+  const parts = [...new Set([...fromEnv, ...DEFAULT_BROWSER_ORIGINS])];
   return parts.length === 1 ? parts[0] : parts;
 }
