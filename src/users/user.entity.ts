@@ -29,6 +29,19 @@ export class User {
   @Column({ name: 'phone_number', type: 'varchar', length: 20, nullable: true })
   phoneNumber: string | null;
 
+  /** Set when the user completes email OTP verification (self-signup). */
+  @Column({ name: 'email_verified_at', type: 'timestamptz', nullable: true })
+  emailVerifiedAt: Date | null;
+
+  @Column({ name: 'email_otp_hash', type: 'varchar', length: 128, nullable: true, select: false })
+  emailOtpHash: string | null;
+
+  @Column({ name: 'email_otp_expires_at', type: 'timestamptz', nullable: true, select: false })
+  emailOtpExpiresAt: Date | null;
+
+  @Column({ name: 'email_otp_attempts', type: 'int', default: 0, select: false })
+  emailOtpAttempts: number;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }

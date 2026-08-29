@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { EmailModule } from '../email/email.module';
 import { Property } from '../properties/property.entity';
 import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
@@ -11,6 +12,7 @@ import { LoginRateLimitService } from './login-rate-limit.service';
 
 @Module({
   imports: [
+    EmailModule,
     TypeOrmModule.forFeature([User, TenantProfile, Property]),
     JwtModule.registerAsync({
       imports: [ConfigModule],

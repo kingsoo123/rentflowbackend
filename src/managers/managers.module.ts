@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import { LeaseAgreement } from '../leases/lease-agreement.entity';
 import { MaintenanceRequest } from '../maintenance/maintenance-request.entity';
 import { Property } from '../properties/property.entity';
 import { TenantPaymentConfirmation } from '../payment-confirmations/tenant-payment-confirmation.entity';
@@ -44,6 +45,7 @@ import { ManagersArtisansService } from './managers-artisans.service';
       TenantPaymentConfirmation,
       ServiceChargeLine,
       ManagerArtisanRoster,
+      LeaseAgreement,
     ]),
   ],
   controllers: [

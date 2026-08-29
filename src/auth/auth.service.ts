@@ -1,11 +1,13 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomInt } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   InternalServerErrorException,
   Logger,
   ServiceUnavailableException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
@@ -22,6 +24,9 @@ import { UserRole } from '../users/user-role.enum';
 import { sanitizeUserText, sanitizeUserTextRecord } from '../common/sanitize-user-text';
 import { normalizeSignupPhone } from '../common/phone-signup';
 import { LoginRateLimitService } from './login-rate-limit.service';
+import { ZeptoMailService } from '../email/zeptomail.service';
+import type { VerifyEmailOtpDto } from './dto/verify-email-otp.dto';
+import type { ResendEmailOtpDto } from './dto/resend-email-otp.dto';
 
 export type SignupResult = {
   id: string;
@@ -29,7 +34,13 @@ export type SignupResult = {
   fullName: string;
   role: string;
   createdAt: Date;
+  /** Present after self-service signup — client must verify OTP before login. */
+  requiresEmailVerification?: boolean;
 };
+
+const OTP_TTL_MS = 10 * 60 * 1000;
+const OTP_MAX_ATTEMPTS = 5;
+const OTP_LENGTH = 6;
 
 export type LoginResult = {
   accessToken: string;
@@ -64,6 +75,7 @@ export class AuthService {
     private readonly dataSource: DataSource,
     private readonly jwtService: JwtService,
     private readonly loginRateLimit: LoginRateLimitService,
+    private readonly zeptoMail: ZeptoMailService,
   ) {}
 
   async login(dto: LoginDto, clientIp: string): Promise<LoginResult> {
@@ -87,6 +99,15 @@ export class AuthService {
       .catch(() => false);
     if (!passwordOk) {
       this.loginRateLimit.rejectFailedAttempt(dto.email, clientIp);
+    }
+
+    if (!user.emailVerifiedAt) {
+      throw new ForbiddenException({
+        message:
+          'Please verify your email with the OTP we sent before signing in.',
+        code: 'EMAIL_NOT_VERIFIED',
+        email: user.email,
+      });
     }
 
     this.loginRateLimit.recordSuccess(dto.email, clientIp);
@@ -180,7 +201,79 @@ export class AuthService {
       }
 
       return user;
+    }).then(async (user) => {
+      await this.issueAndSendEmailOtp(user.id, user.email, user.fullName);
+      return {
+        ...user,
+        requiresEmailVerification: true,
+      };
     });
+  }
+
+  async verifyEmailOtp(dto: VerifyEmailOtpDto): Promise<{ verified: true; email: string }> {
+    const email = dto.email.trim().toLowerCase();
+    const user = await this.usersRepository
+      .createQueryBuilder('u')
+      .where('u.email = :email', { email })
+      .addSelect(['u.emailOtpHash', 'u.emailOtpExpiresAt', 'u.emailOtpAttempts'])
+      .getOne();
+
+    if (!user) {
+      throw new BadRequestException('Invalid verification code');
+    }
+    if (user.emailVerifiedAt) {
+      return { verified: true, email: user.email };
+    }
+    if (!user.emailOtpHash || !user.emailOtpExpiresAt) {
+      throw new BadRequestException(
+        'No active verification code. Request a new code.',
+      );
+    }
+    if (user.emailOtpAttempts >= OTP_MAX_ATTEMPTS) {
+      throw new BadRequestException(
+        'Too many incorrect attempts. Request a new verification code.',
+      );
+    }
+    if (user.emailOtpExpiresAt.getTime() < Date.now()) {
+      throw new BadRequestException(
+        'This verification code has expired. Request a new one.',
+      );
+    }
+
+    const incomingHash = this.hashOtp(dto.code);
+    if (incomingHash !== user.emailOtpHash) {
+      await this.usersRepository.update(
+        { id: user.id },
+        { emailOtpAttempts: user.emailOtpAttempts + 1 },
+      );
+      throw new BadRequestException('Invalid verification code');
+    }
+
+    await this.usersRepository.update(
+      { id: user.id },
+      {
+        emailVerifiedAt: new Date(),
+        emailOtpHash: null,
+        emailOtpExpiresAt: null,
+        emailOtpAttempts: 0,
+      },
+    );
+
+    return { verified: true, email: user.email };
+  }
+
+  async resendEmailOtp(dto: ResendEmailOtpDto): Promise<{ sent: true; email: string }> {
+    const email = dto.email.trim().toLowerCase();
+    const user = await this.usersRepository.findOne({ where: { email } });
+    if (!user) {
+      // Avoid account enumeration
+      return { sent: true, email };
+    }
+    if (user.emailVerifiedAt) {
+      throw new BadRequestException('This email is already verified. You can sign in.');
+    }
+    await this.issueAndSendEmailOtp(user.id, user.email, user.fullName);
+    return { sent: true, email: user.email };
   }
 
   /**
@@ -237,6 +330,7 @@ export class AuthService {
       passwordPlain: provisioningPassword,
       role: UserRole.TENANT,
       logContext: 'createTenantByManager',
+      emailVerifiedAt: new Date(),
     });
 
     try {
@@ -313,6 +407,7 @@ export class AuthService {
     phoneCountryCode?: string | null;
     phoneNumber?: string | null;
     logContext: string;
+    emailVerifiedAt?: Date | null;
   }): Promise<SignupResult> {
     return this.persistNewUserWithManager(this.usersRepository.manager, params);
   }
@@ -348,6 +443,51 @@ export class AuthService {
     return [...seen.values()];
   }
 
+  private generateOtpCode(): string {
+    const max = 10 ** OTP_LENGTH;
+    return String(randomInt(0, max)).padStart(OTP_LENGTH, '0');
+  }
+
+  private hashOtp(code: string): string {
+    return createHash('sha256').update(code.trim()).digest('hex');
+  }
+
+  private async issueAndSendEmailOtp(
+    userId: string,
+    email: string,
+    fullName: string,
+  ): Promise<void> {
+    if (!this.zeptoMail.isConfigured()) {
+      throw new ServiceUnavailableException(
+        'Email verification is temporarily unavailable (ZEPTOMAIL_TOKEN not configured).',
+      );
+    }
+
+    const code = this.generateOtpCode();
+    const expiresAt = new Date(Date.now() + OTP_TTL_MS);
+    await this.usersRepository.update(
+      { id: userId },
+      {
+        emailOtpHash: this.hashOtp(code),
+        emailOtpExpiresAt: expiresAt,
+        emailOtpAttempts: 0,
+      },
+    );
+
+    const send = await this.zeptoMail.sendSignupOtp({
+      to: email,
+      fullName,
+      otp: code,
+      expiresMinutes: Math.round(OTP_TTL_MS / 60000),
+    });
+    if (!send.ok) {
+      this.logger.error(`Failed to send signup OTP to ${email}: ${send.message}`);
+      throw new ServiceUnavailableException(
+        'We could not send the verification email. Please try again in a moment.',
+      );
+    }
+  }
+
   private async persistNewUserWithManager(
     em: EntityManager,
     params: {
@@ -358,6 +498,7 @@ export class AuthService {
       phoneCountryCode?: string | null;
       phoneNumber?: string | null;
       logContext: string;
+      emailVerifiedAt?: Date | null;
     },
   ): Promise<SignupResult> {
     const usersRepository = em.getRepository(User);
@@ -379,6 +520,10 @@ export class AuthService {
         role: params.role,
         phoneCountryCode: params.phoneCountryCode ?? null,
         phoneNumber: params.phoneNumber ?? null,
+        emailVerifiedAt: params.emailVerifiedAt ?? null,
+        emailOtpHash: null,
+        emailOtpExpiresAt: null,
+        emailOtpAttempts: 0,
       });
       await usersRepository.save(user);
 

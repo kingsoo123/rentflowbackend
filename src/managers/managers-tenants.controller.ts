@@ -1,7 +1,9 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   HttpStatus,
   Param,
   ParseUUIDPipe,
@@ -61,6 +63,21 @@ export class ManagersTenantsController {
     @Req() req: AuthedManagerRequest,
   ) {
     return this.managersTenantsService.updateTenant(req.user.sub, id, dto);
+  }
+
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.OK)
+  async removeOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: AuthedManagerRequest,
+  ) {
+    const result = await this.managersTenantsService.removeTenantFromRoster(
+      req.user.sub,
+      id,
+    );
+    this.maintenanceRealtime.notifyOccupancyUpdated(req.user.sub);
+    return result;
   }
 
   @Post()

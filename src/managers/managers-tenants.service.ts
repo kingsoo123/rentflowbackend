@@ -9,6 +9,8 @@ import { In, Repository } from 'typeorm';
 import { sanitizeUserText } from '../common/sanitize-user-text';
 import { ListManagersTenantsQueryDto } from './dto/list-managers-tenants.query.dto';
 import type { PatchTenantDto } from './dto/patch-tenant.dto';
+import { LeaseAgreement } from '../leases/lease-agreement.entity';
+import { LeaseStatus } from '../leases/lease-status.enum';
 import { Property } from '../properties/property.entity';
 import { PaymentConfirmationStatus } from '../payment-confirmations/payment-confirmation-status.enum';
 import { PaymentType } from '../payment-confirmations/payment-type.enum';
@@ -113,6 +115,8 @@ export class ManagersTenantsService {
     private readonly paymentConfirmationsRepository: Repository<TenantPaymentConfirmation>,
     @InjectRepository(ServiceChargeLine)
     private readonly serviceChargeLineRepository: Repository<ServiceChargeLine>,
+    @InjectRepository(LeaseAgreement)
+    private readonly leaseAgreementRepository: Repository<LeaseAgreement>,
     private readonly managersUnitsService: ManagersUnitsService,
   ) {}
 
@@ -488,6 +492,75 @@ export class ManagersTenantsService {
     }
 
     return this.getTenantDetail(managerUserId, id);
+  }
+
+  /**
+   * Removes a tenant from this manager’s occupancy roster without deleting the
+   * login account (payments / history stay intact). Clears property + unit
+   * assignment and terminates any open leases for this manager↔tenant pair.
+   */
+  async removeTenantFromRoster(
+    managerUserId: string,
+    tenantUserId: string,
+  ): Promise<{ removed: true; leasesTerminated: number }> {
+    await this.assertTenantBelongsToManager(managerUserId, tenantUserId);
+
+    const openStatuses: LeaseStatus[] = [
+      LeaseStatus.DRAFT,
+      LeaseStatus.PENDING_TENANT_SIGNATURE,
+      LeaseStatus.PENDING_MANAGER_COUNTERSIGNATURE,
+      LeaseStatus.ACTIVE,
+      LeaseStatus.EXPIRED,
+    ];
+    const openLeases = await this.leaseAgreementRepository.find({
+      where: {
+        managerUserId,
+        tenantId: tenantUserId,
+        status: In(openStatuses),
+      },
+    });
+
+    const now = new Date();
+    for (const lease of openLeases) {
+      lease.status = LeaseStatus.TERMINATED;
+      lease.terminatedAt = now;
+      lease.terminationReason =
+        'Tenant removed from property roster by property manager.';
+    }
+    if (openLeases.length > 0) {
+      await this.leaseAgreementRepository.save(openLeases);
+    }
+
+    const profile = await this.tenantProfileRepository.findOne({
+      where: { userId: tenantUserId },
+    });
+    if (profile) {
+      const data =
+        profile.profileData &&
+        typeof profile.profileData === 'object' &&
+        !Array.isArray(profile.profileData)
+          ? ({ ...(profile.profileData as Record<string, unknown>) } as Record<
+              string,
+              unknown
+            >)
+          : {};
+      const formerProperty =
+        typeof data.propertyAssigned === 'string'
+          ? data.propertyAssigned.trim()
+          : '';
+      if (formerProperty) {
+        data.formerPropertyAssigned = formerProperty;
+      }
+      data.removedFromRosterAt = now.toISOString();
+      delete data.propertyAssigned;
+      delete data.unitId;
+      delete data.unitNumber;
+      delete data.unitLabel;
+      profile.profileData = data;
+      await this.tenantProfileRepository.save(profile);
+    }
+
+    return { removed: true, leasesTerminated: openLeases.length };
   }
 
   private normalizeRenewalDate(value: unknown): string | null {
