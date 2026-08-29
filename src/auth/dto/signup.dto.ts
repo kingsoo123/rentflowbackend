@@ -1,7 +1,7 @@
 import { Transform } from 'class-transformer';
 import {
   IsEmail,
-  IsEnum,
+  IsIn,
   IsString,
   MaxLength,
   MinLength,
@@ -21,7 +21,7 @@ export class SignupDto {
   @MaxLength(120)
   name: string;
 
-  @IsEnum(UserRole)
+  @IsIn([UserRole.PROPERTY_MANAGER, UserRole.TENANT, UserRole.ARTISAN])
   role: UserRole;
 
   @IsEmail()

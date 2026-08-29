@@ -9,20 +9,22 @@ import {
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { DataSource, EntityManager, QueryFailedError, Repository } from 'typeorm';
-import { LoginDto } from './dto/login.dto';
-import { SignupDto } from './dto/signup.dto';
-import type { CreateTenantDto } from './dto/create-tenant.dto';
-import type { JwtAccessPayload } from './types/jwt-payload';
+import { DEFAULT_ADMIN_EMAIL } from '../admin/admin.constants';
 import { Property } from '../properties/property.entity';
 import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
 import { UserRole } from '../users/user-role.enum';
 import { sanitizeUserText, sanitizeUserTextRecord } from '../common/sanitize-user-text';
 import { normalizeSignupPhone } from '../common/phone-signup';
+import { LoginDto } from './dto/login.dto';
+import { SignupDto } from './dto/signup.dto';
+import type { CreateTenantDto } from './dto/create-tenant.dto';
+import type { JwtAccessPayload } from './types/jwt-payload';
 import { LoginRateLimitService } from './login-rate-limit.service';
 import { ZeptoMailService } from '../email/zeptomail.service';
 import type { VerifyEmailOtpDto } from './dto/verify-email-otp.dto';
@@ -76,7 +78,16 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly loginRateLimit: LoginRateLimitService,
     private readonly zeptoMail: ZeptoMailService,
+    private readonly config: ConfigService,
   ) {}
+
+  private platformAdminEmail(): string {
+    return (
+      this.config.get<string>('ADMIN_EMAIL') ?? DEFAULT_ADMIN_EMAIL
+    )
+      .trim()
+      .toLowerCase();
+  }
 
   async login(dto: LoginDto, clientIp: string): Promise<LoginResult> {
     this.loginRateLimit.assertCanAttempt(dto.email, clientIp);
@@ -101,7 +112,7 @@ export class AuthService {
       this.loginRateLimit.rejectFailedAttempt(dto.email, clientIp);
     }
 
-    if (!user.emailVerifiedAt) {
+    if (user.role !== UserRole.ADMIN && !user.emailVerifiedAt) {
       throw new ForbiddenException({
         message:
           'Please verify your email with the OTP we sent before signing in.',
@@ -139,6 +150,18 @@ export class AuthService {
   async signup(dto: SignupDto): Promise<SignupResult> {
     if (dto.password !== dto.confirmPassword) {
       throw new BadRequestException('Passwords do not match');
+    }
+
+    if (dto.role === UserRole.ADMIN) {
+      throw new BadRequestException(
+        'Admin accounts cannot be created via self-service signup.',
+      );
+    }
+
+    if (dto.email.trim().toLowerCase() === this.platformAdminEmail()) {
+      throw new ForbiddenException(
+        'This email address is reserved for the platform admin.',
+      );
     }
 
     const propertyNameList =
@@ -507,7 +530,9 @@ export class AuthService {
         where: { email: params.email },
       });
       if (existing) {
-        throw new ConflictException('An account with this email already exists');
+        throw new ConflictException(
+          'An account with this email already exists. Sign in instead — removing a tenant from a property does not delete their login.',
+        );
       }
 
       const saltRounds = 12;
@@ -549,7 +574,7 @@ export class AuthService {
         );
         if (code === '23505') {
           throw new ConflictException(
-            'An account with this email already exists',
+            'An account with this email already exists. Sign in instead — removing a tenant from a property does not delete their login.',
           );
         }
         if (
