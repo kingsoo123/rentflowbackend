@@ -34,11 +34,13 @@ export default (): AppConfiguration => {
   };
 };
 
-/** Always allowed so local Next.js and the Netlify site can call the API. */
+/** Always allowed so local Next.js and production frontends can call the API. */
 const DEFAULT_BROWSER_ORIGINS = [
   'http://localhost:3000',
   'http://127.0.0.1:3000',
   'https://estateman.netlify.app',
+  'https://rentpilot.com.ng',
+  'https://www.rentpilot.com.ng',
 ];
 
 function parseCorsOrigin(raw: string | undefined): string | string[] | true {
