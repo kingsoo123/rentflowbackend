@@ -9,7 +9,9 @@ export const CLOUDINARY_RENT_PILOT_FOLDER = 'rent-pilot';
 export type CloudinaryAssetKind =
   | 'maintenance'
   | 'payment-receipts'
-  | 'inspections';
+  | 'inspections'
+  | 'property-images'
+  | 'property-documents';
 
 export type CloudinaryUploadResult = {
   /** Stored in DB — Cloudinary HTTPS URL (also used as `path` for clients). */
@@ -110,4 +112,52 @@ export class CloudinaryService {
       publicId: result.public_id,
     };
   }
+  async uploadFileBuffer(
+    buffer: Buffer,
+    kind: CloudinaryAssetKind,
+    options?: { filenameHint?: string; mimeType?: string },
+  ): Promise<CloudinaryUploadResult> {
+    this.assertConfigured();
+
+    const publicIdBase = options?.filenameHint
+      ?.replace(/\.[^.]+$/, '')
+      .replace(/[^a-zA-Z0-9_-]/g, '_')
+      .slice(0, 80);
+
+    const resourceType =
+      options?.mimeType?.startsWith('image/') ? 'image' : 'auto';
+
+    const result = await new Promise<UploadApiResponse>((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        {
+          folder: CLOUDINARY_RENT_PILOT_FOLDER,
+          resource_type: resourceType,
+          overwrite: false,
+          unique_filename: true,
+          use_filename: Boolean(publicIdBase),
+          tags: [kind, 'rent-pilot'],
+        },
+        (err, uploadResult) => {
+          if (err || !uploadResult) {
+            reject(err ?? new Error('Cloudinary upload returned empty result'));
+            return;
+          }
+          resolve(uploadResult);
+        },
+      );
+      Readable.from(buffer).pipe(stream);
+    });
+
+    const url = result.secure_url;
+    if (!url) {
+      throw new ServiceUnavailableException('Cloudinary upload did not return a URL');
+    }
+
+    return {
+      path: url,
+      url,
+      publicId: result.public_id,
+    };
+  }
+
 }

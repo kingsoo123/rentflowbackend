@@ -1,5 +1,13 @@
-import { IsOptional, IsString, MaxLength, MinLength, ValidateIf } from 'class-validator';
+import {
+  IsEnum,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+  ValidateIf,
+} from 'class-validator';
 import { SanitizeTextOptional } from '../../common/decorators/sanitize-text.decorator';
+import { PropertyUnitStatus } from '../../properties/property-unit-status.enum';
 
 export class UpdatePropertyUnitDto {
   @IsOptional()
@@ -8,6 +16,10 @@ export class UpdatePropertyUnitDto {
   @MinLength(1)
   @MaxLength(120)
   label?: string;
+
+  @IsOptional()
+  @IsEnum(PropertyUnitStatus)
+  status?: PropertyUnitStatus;
 
   /** Pass null to clear. */
   @IsOptional()

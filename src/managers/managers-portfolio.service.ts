@@ -11,10 +11,38 @@ import { QueryFailedError, Repository } from 'typeorm';
 import type { CreatePropertyDto } from './dto/create-property.dto';
 import type { UpdatePropertyDto } from './dto/update-property.dto';
 import { Property } from '../properties/property.entity';
+import { PropertyDocument } from '../properties/property-document.entity';
+import { PropertyManagerAssignment } from '../properties/property-manager-assignment.entity';
+import {
+  PROPERTY_AMENITIES,
+  PROPERTY_DOCUMENT_TYPES,
+  PROPERTY_TYPES,
+} from '../properties/property-catalog';
 import { PropertyUnit } from '../properties/property-unit.entity';
 import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
 import { UserRole } from '../users/user-role.enum';
+
+export type ManagerPropertyBuilding = {
+  name: string;
+  floors: number | null;
+  unitCount: number | null;
+};
+
+export type ManagerPropertyDocument = {
+  id: string;
+  name: string;
+  documentType: string;
+  url: string;
+  createdAt: string;
+};
+
+export type ManagerPropertyAssignee = {
+  id: string;
+  userId: string;
+  email: string;
+  fullName: string;
+};
 
 export type ManagerPropertyDetail = {
   id: string;
@@ -29,6 +57,13 @@ export type ManagerPropertyDetail = {
   collectionAccountNumber: string | null;
   collectionPaymentInstructions: string | null;
   unitCount: number | null;
+  propertyType: string | null;
+  amenities: string[];
+  imageUrls: string[];
+  buildings: ManagerPropertyBuilding[];
+  documents: ManagerPropertyDocument[];
+  assignedManagers: ManagerPropertyAssignee[];
+  isPrimaryOwner: boolean;
   createdAt: string;
 };
 
@@ -93,6 +128,10 @@ export class ManagersPortfolioService {
     private readonly propertyRepository: Repository<Property>,
     @InjectRepository(PropertyUnit)
     private readonly unitRepository: Repository<PropertyUnit>,
+    @InjectRepository(PropertyDocument)
+    private readonly documentRepository: Repository<PropertyDocument>,
+    @InjectRepository(PropertyManagerAssignment)
+    private readonly assignmentRepository: Repository<PropertyManagerAssignment>,
   ) {}
 
   private async assertPropertyManager(managerUserId: string): Promise<User> {
@@ -105,7 +144,64 @@ export class ManagersPortfolioService {
     return user;
   }
 
-  private mapProperty(p: Property): ManagerPropertyDetail {
+  private normalizeBuildings(
+    raw: Property['buildings'] | null | undefined,
+  ): ManagerPropertyBuilding[] {
+    if (!Array.isArray(raw)) return [];
+    const out: ManagerPropertyBuilding[] = [];
+    for (const b of raw) {
+      if (!b || typeof b !== 'object') continue;
+      const name = typeof b.name === 'string' ? b.name.trim() : '';
+      if (!name) continue;
+      const floors =
+        typeof b.floors === 'number' && Number.isFinite(b.floors)
+          ? Math.max(0, Math.floor(b.floors))
+          : null;
+      const unitCount =
+        typeof b.unitCount === 'number' && Number.isFinite(b.unitCount)
+          ? Math.max(0, Math.floor(b.unitCount))
+          : null;
+      out.push({ name, floors, unitCount });
+    }
+    return out;
+  }
+
+  private normalizeAmenities(raw: unknown): string[] {
+    if (!Array.isArray(raw)) return [];
+    const allowed = new Set<string>(PROPERTY_AMENITIES);
+    const out: string[] = [];
+    for (const a of raw) {
+      if (typeof a !== 'string') continue;
+      const t = a.trim();
+      if (allowed.has(t) && !out.includes(t)) out.push(t);
+    }
+    return out;
+  }
+
+  private normalizeImageUrls(raw: unknown): string[] {
+    if (!Array.isArray(raw)) return [];
+    const out: string[] = [];
+    for (const u of raw) {
+      if (typeof u !== 'string') continue;
+      const t = u.trim();
+      if (t && !out.includes(t)) out.push(t);
+    }
+    return out.slice(0, 30);
+  }
+
+  private mapPropertyBase(
+    p: Property,
+    extras?: {
+      documents?: ManagerPropertyDocument[];
+      assignedManagers?: ManagerPropertyAssignee[];
+      viewerUserId?: string;
+    },
+  ): ManagerPropertyDetail {
+    const propertyType =
+      typeof p.propertyType === 'string' &&
+      (PROPERTY_TYPES as readonly string[]).includes(p.propertyType)
+        ? p.propertyType
+        : p.propertyType?.trim() || null;
     return {
       id: p.id,
       name: p.name,
@@ -119,8 +215,110 @@ export class ManagersPortfolioService {
       collectionAccountNumber: p.collectionAccountNumber,
       collectionPaymentInstructions: p.collectionPaymentInstructions,
       unitCount: p.unitCount ?? null,
+      propertyType,
+      amenities: this.normalizeAmenities(p.amenities),
+      imageUrls: this.normalizeImageUrls(p.imageUrls),
+      buildings: this.normalizeBuildings(p.buildings),
+      documents: extras?.documents ?? [],
+      assignedManagers: extras?.assignedManagers ?? [],
+      isPrimaryOwner:
+        extras?.viewerUserId !== undefined
+          ? p.managerUserId === extras.viewerUserId
+          : true,
       createdAt: p.createdAt.toISOString(),
     };
+  }
+
+  private async enrichProperties(
+    rows: Property[],
+    viewerUserId: string,
+  ): Promise<ManagerPropertyDetail[]> {
+    if (rows.length === 0) return [];
+    const ids = rows.map((r) => r.id);
+    const docs = await this.documentRepository
+      .createQueryBuilder('d')
+      .where('d.propertyId IN (:...ids)', { ids })
+      .orderBy('d.createdAt', 'DESC')
+      .getMany();
+    const assigns = await this.assignmentRepository
+      .createQueryBuilder('a')
+      .innerJoinAndSelect('a.manager', 'm')
+      .where('a.propertyId IN (:...ids)', { ids })
+      .orderBy('m.fullName', 'ASC')
+      .getMany();
+
+    const docsByProp = new Map<string, ManagerPropertyDocument[]>();
+    for (const d of docs) {
+      const list = docsByProp.get(d.propertyId) ?? [];
+      list.push({
+        id: d.id,
+        name: d.name,
+        documentType: d.documentType,
+        url: d.url,
+        createdAt: d.createdAt.toISOString(),
+      });
+      docsByProp.set(d.propertyId, list);
+    }
+    const assignsByProp = new Map<string, ManagerPropertyAssignee[]>();
+    for (const a of assigns) {
+      const list = assignsByProp.get(a.propertyId) ?? [];
+      list.push({
+        id: a.id,
+        userId: a.managerUserId,
+        email: a.manager?.email ?? '',
+        fullName: a.manager?.fullName ?? '',
+      });
+      assignsByProp.set(a.propertyId, list);
+    }
+
+    return rows.map((r) =>
+      this.mapPropertyBase(r, {
+        documents: docsByProp.get(r.id) ?? [],
+        assignedManagers: assignsByProp.get(r.id) ?? [],
+        viewerUserId,
+      }),
+    );
+  }
+
+  private async assertCanAccessProperty(
+    managerUserId: string,
+    propertyId: string,
+  ): Promise<Property> {
+    const owned = await this.propertyRepository.findOne({
+      where: { id: propertyId, managerUserId },
+    });
+    if (owned) return owned;
+    const assignment = await this.assignmentRepository.findOne({
+      where: { propertyId, managerUserId },
+    });
+    if (!assignment) {
+      throw new NotFoundException('Property not found');
+    }
+    const prop = await this.propertyRepository.findOne({ where: { id: propertyId } });
+    if (!prop) {
+      throw new NotFoundException('Property not found');
+    }
+    return prop;
+  }
+
+  private async assertPrimaryOwner(
+    managerUserId: string,
+    propertyId: string,
+  ): Promise<Property> {
+    const row = await this.propertyRepository.findOne({
+      where: { id: propertyId, managerUserId },
+    });
+    if (!row) {
+      throw new NotFoundException('Property not found');
+    }
+    return row;
+  }
+
+  private sanitizeBuildingsInput(
+    raw: Array<{ name: string; floors?: number | null; unitCount?: number | null }> | undefined,
+  ): Property['buildings'] | undefined {
+    if (raw === undefined) return undefined;
+    return this.normalizeBuildings(raw);
   }
 
   private async computeOccupancy(
@@ -278,11 +476,29 @@ export class ManagersPortfolioService {
     managerUserId: string,
   ): Promise<ManagerPropertyDetail[]> {
     await this.assertPropertyManager(managerUserId);
-    const rows = await this.propertyRepository.find({
+    const owned = await this.propertyRepository.find({
       where: { managerUserId },
       order: { name: 'ASC' },
     });
-    return rows.map((r) => this.mapProperty(r));
+    const assignedLinks = await this.assignmentRepository.find({
+      where: { managerUserId },
+    });
+    const assignedIds = assignedLinks.map((a) => a.propertyId);
+    let assigned: Property[] = [];
+    if (assignedIds.length > 0) {
+      assigned = await this.propertyRepository
+        .createQueryBuilder('p')
+        .where('p.id IN (:...ids)', { ids: assignedIds })
+        .andWhere('p.managerUserId != :mid', { mid: managerUserId })
+        .orderBy('p.name', 'ASC')
+        .getMany();
+    }
+    const byId = new Map<string, Property>();
+    for (const r of [...owned, ...assigned]) byId.set(r.id, r);
+    const rows = [...byId.values()].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+    );
+    return this.enrichProperties(rows, managerUserId);
   }
 
   async createProperty(
@@ -294,6 +510,13 @@ export class ManagersPortfolioService {
       dto.unitCount !== undefined && Number.isFinite(dto.unitCount)
         ? Math.max(1, Math.floor(dto.unitCount))
         : null;
+    const amenities = this.normalizeAmenities(dto.amenities);
+    const imageUrls = this.normalizeImageUrls(dto.imageUrls);
+    const buildings = this.sanitizeBuildingsInput(dto.buildings) ?? [];
+    const propertyType =
+      dto.propertyType && (PROPERTY_TYPES as readonly string[]).includes(dto.propertyType)
+        ? dto.propertyType
+        : null;
     const row = this.propertyRepository.create({
       managerUserId,
       name: dto.name.trim(),
@@ -303,10 +526,15 @@ export class ManagersPortfolioService {
       postalCode: emptyToNull(dto.postalCode),
       country: emptyToNull(dto.country),
       unitCount,
+      propertyType,
+      amenities,
+      imageUrls,
+      buildings,
     });
     try {
       const saved = await this.propertyRepository.save(row);
-      return this.mapProperty(saved);
+      const [detail] = await this.enrichProperties([saved], managerUserId);
+      return detail;
     } catch (err) {
       if (err instanceof QueryFailedError) {
         const code = pgErrorCode(err);
@@ -331,12 +559,7 @@ export class ManagersPortfolioService {
     dto: UpdatePropertyDto,
   ): Promise<ManagerPropertyDetail> {
     await this.assertPropertyManager(managerUserId);
-    const row = await this.propertyRepository.findOne({
-      where: { id: propertyId, managerUserId },
-    });
-    if (!row) {
-      throw new NotFoundException('Property not found');
-    }
+    const row = await this.assertCanAccessProperty(managerUserId, propertyId);
     const hasAny =
       dto.name !== undefined ||
       dto.addressLine !== undefined ||
@@ -348,7 +571,11 @@ export class ManagersPortfolioService {
       dto.collectionAccountName !== undefined ||
       dto.collectionAccountNumber !== undefined ||
       dto.collectionPaymentInstructions !== undefined ||
-      dto.unitCount !== undefined;
+      dto.unitCount !== undefined ||
+      dto.propertyType !== undefined ||
+      dto.amenities !== undefined ||
+      dto.imageUrls !== undefined ||
+      dto.buildings !== undefined;
     if (!hasAny) {
       throw new BadRequestException('No updates provided');
     }
@@ -389,9 +616,28 @@ export class ManagersPortfolioService {
         row.unitCount = Math.max(1, Math.floor(dto.unitCount));
       }
     }
+    if (dto.propertyType !== undefined) {
+      if (dto.propertyType === null || !String(dto.propertyType).trim()) {
+        row.propertyType = null;
+      } else if ((PROPERTY_TYPES as readonly string[]).includes(dto.propertyType)) {
+        row.propertyType = dto.propertyType;
+      } else {
+        throw new BadRequestException('Invalid property type');
+      }
+    }
+    if (dto.amenities !== undefined) {
+      row.amenities = this.normalizeAmenities(dto.amenities);
+    }
+    if (dto.imageUrls !== undefined) {
+      row.imageUrls = this.normalizeImageUrls(dto.imageUrls);
+    }
+    if (dto.buildings !== undefined) {
+      row.buildings = this.sanitizeBuildingsInput(dto.buildings) ?? [];
+    }
     try {
       const saved = await this.propertyRepository.save(row);
-      return this.mapProperty(saved);
+      const [detail] = await this.enrichProperties([saved], managerUserId);
+      return detail;
     } catch (err) {
       if (err instanceof QueryFailedError) {
         const code = pgErrorCode(err);
@@ -419,5 +665,95 @@ export class ManagersPortfolioService {
     if (!res.affected) {
       throw new NotFoundException('Property not found');
     }
+  }
+
+  async addPropertyDocument(
+    managerUserId: string,
+    propertyId: string,
+    dto: { name: string; documentType: string; url: string },
+  ): Promise<ManagerPropertyDetail> {
+    await this.assertPropertyManager(managerUserId);
+    await this.assertCanAccessProperty(managerUserId, propertyId);
+    if (!(PROPERTY_DOCUMENT_TYPES as readonly string[]).includes(dto.documentType)) {
+      throw new BadRequestException('Invalid document type');
+    }
+    const doc = this.documentRepository.create({
+      propertyId,
+      name: dto.name.trim(),
+      documentType: dto.documentType,
+      url: dto.url.trim(),
+    });
+    await this.documentRepository.save(doc);
+    const prop = await this.propertyRepository.findOneOrFail({ where: { id: propertyId } });
+    const [detail] = await this.enrichProperties([prop], managerUserId);
+    return detail;
+  }
+
+  async removePropertyDocument(
+    managerUserId: string,
+    propertyId: string,
+    documentId: string,
+  ): Promise<ManagerPropertyDetail> {
+    await this.assertPropertyManager(managerUserId);
+    await this.assertCanAccessProperty(managerUserId, propertyId);
+    const res = await this.documentRepository.delete({ id: documentId, propertyId });
+    if (!res.affected) {
+      throw new NotFoundException('Document not found');
+    }
+    const prop = await this.propertyRepository.findOneOrFail({ where: { id: propertyId } });
+    const [detail] = await this.enrichProperties([prop], managerUserId);
+    return detail;
+  }
+
+  async assignManager(
+    managerUserId: string,
+    propertyId: string,
+    email: string,
+  ): Promise<ManagerPropertyDetail> {
+    await this.assertPropertyManager(managerUserId);
+    await this.assertPrimaryOwner(managerUserId, propertyId);
+    const normalized = email.trim().toLowerCase();
+    const assignee = await this.usersRepository.findOne({
+      where: { email: normalized, role: UserRole.PROPERTY_MANAGER },
+    });
+    if (!assignee) {
+      throw new NotFoundException(
+        'No property manager account found with that email. They must sign up first.',
+      );
+    }
+    if (assignee.id === managerUserId) {
+      throw new BadRequestException('You are already the primary owner of this property.');
+    }
+    const existing = await this.assignmentRepository.findOne({
+      where: { propertyId, managerUserId: assignee.id },
+    });
+    if (existing) {
+      throw new ConflictException('That manager is already assigned to this property.');
+    }
+    await this.assignmentRepository.save(
+      this.assignmentRepository.create({
+        propertyId,
+        managerUserId: assignee.id,
+      }),
+    );
+    const prop = await this.propertyRepository.findOneOrFail({ where: { id: propertyId } });
+    const [detail] = await this.enrichProperties([prop], managerUserId);
+    return detail;
+  }
+
+  async unassignManager(
+    managerUserId: string,
+    propertyId: string,
+    assignmentId: string,
+  ): Promise<ManagerPropertyDetail> {
+    await this.assertPropertyManager(managerUserId);
+    await this.assertPrimaryOwner(managerUserId, propertyId);
+    const res = await this.assignmentRepository.delete({ id: assignmentId, propertyId });
+    if (!res.affected) {
+      throw new NotFoundException('Assignment not found');
+    }
+    const prop = await this.propertyRepository.findOneOrFail({ where: { id: propertyId } });
+    const [detail] = await this.enrichProperties([prop], managerUserId);
+    return detail;
   }
 }

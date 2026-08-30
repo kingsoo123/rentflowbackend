@@ -176,8 +176,11 @@ export class ServiceChargesService {
    * (oldest matching row if multiple managers used the same display name).
    */
   private async findPropertyForTenant(tenantId: string): Promise<Property | null> {
+    // Select only columns needed here so arrears/service-charge reads keep
+    // working if newer portfolio columns have not been migrated yet.
     const row = await this.propertyRepository
       .createQueryBuilder('p')
+      .select(['p.id', 'p.name'])
       .innerJoin(TenantProfile, 'tp', 'tp.user_id = :tenantId', { tenantId })
       .innerJoin(User, 'u', 'u.id = tp.user_id AND u.role = :role', {
         role: UserRole.TENANT,

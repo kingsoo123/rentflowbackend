@@ -8,6 +8,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { Property } from './property.entity';
+import { PropertyUnitStatus } from './property-unit-status.enum';
 
 @Entity('property_units')
 export class PropertyUnit {
@@ -24,6 +25,17 @@ export class PropertyUnit {
   /** Display label such as "4B" or "Unit 12". Unique per property (case-insensitive). */
   @Column({ type: 'varchar', length: 120 })
   label: string;
+
+  /**
+   * Operational availability. Occupancy (tenant assigned) is derived separately;
+   * use this for reserved / maintenance / unavailable when no tenant is linked.
+   */
+  @Column({
+    type: 'varchar',
+    length: 32,
+    default: PropertyUnitStatus.AVAILABLE,
+  })
+  status: PropertyUnitStatus;
 
   @Column({ type: 'text', nullable: true })
   notes: string | null;

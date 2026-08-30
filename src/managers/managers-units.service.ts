@@ -10,6 +10,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
 import { Property } from '../properties/property.entity';
 import { PropertyUnit } from '../properties/property-unit.entity';
+import {
+  isPropertyUnitStatus,
+  PropertyUnitStatus,
+} from '../properties/property-unit-status.enum';
 import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
 import { UserRole } from '../users/user-role.enum';
@@ -21,6 +25,8 @@ export type ManagerPropertyUnitDetail = {
   propertyId: string;
   label: string;
   notes: string | null;
+  /** Operational availability (available / reserved / under_maintenance / unavailable). */
+  status: PropertyUnitStatus;
   occupied: boolean;
   tenantId: string | null;
   tenantName: string | null;
@@ -116,6 +122,13 @@ export class ManagersUnitsService {
     return map;
   }
 
+  private normalizeStatus(raw: unknown): PropertyUnitStatus {
+    if (isPropertyUnitStatus(raw)) {
+      return raw;
+    }
+    return PropertyUnitStatus.AVAILABLE;
+  }
+
   private mapUnit(
     u: PropertyUnit,
     occ: { tenantId: string; tenantName: string } | undefined,
@@ -125,6 +138,7 @@ export class ManagersUnitsService {
       propertyId: u.propertyId,
       label: u.label,
       notes: u.notes,
+      status: this.normalizeStatus(u.status),
       occupied: Boolean(occ),
       tenantId: occ?.tenantId ?? null,
       tenantName: occ?.tenantName ?? null,
@@ -161,6 +175,7 @@ export class ManagersUnitsService {
     const row = this.unitRepository.create({
       propertyId,
       label,
+      status: this.normalizeStatus(dto.status ?? PropertyUnitStatus.AVAILABLE),
       notes: emptyToNull(dto.notes),
     });
     try {
@@ -194,12 +209,19 @@ export class ManagersUnitsService {
     if (!row) {
       throw new NotFoundException('Unit not found');
     }
-    if (dto.label === undefined && dto.notes === undefined) {
+    if (
+      dto.label === undefined &&
+      dto.notes === undefined &&
+      dto.status === undefined
+    ) {
       throw new BadRequestException('No updates provided');
     }
     const prevLabel = row.label;
     if (dto.label !== undefined) {
       row.label = dto.label.trim();
+    }
+    if (dto.status !== undefined) {
+      row.status = this.normalizeStatus(dto.status);
     }
     if (dto.notes !== undefined) {
       row.notes = dto.notes === null ? null : emptyToNull(dto.notes);
@@ -303,6 +325,7 @@ export class ManagersUnitsService {
             this.unitRepository.create({
               propertyId: property.id,
               label: rawUnitNumber,
+              status: PropertyUnitStatus.AVAILABLE,
               notes: null,
             }),
           );
@@ -329,6 +352,18 @@ export class ManagersUnitsService {
       delete profile.unitId;
       delete profile.unitNumber;
       return profile;
+    }
+
+    const unitStatus = this.normalizeStatus(unit.status);
+    if (
+      unitStatus === PropertyUnitStatus.UNDER_MAINTENANCE ||
+      unitStatus === PropertyUnitStatus.UNAVAILABLE
+    ) {
+      throw new BadRequestException(
+        unitStatus === PropertyUnitStatus.UNDER_MAINTENANCE
+          ? `Unit "${unit.label}" is under maintenance and cannot be assigned.`
+          : `Unit "${unit.label}" is unavailable and cannot be assigned.`,
+      );
     }
 
     await this.assertUnitNotOccupiedByOther(unit.id, excludeTenantUserId);

@@ -1,11 +1,14 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module';
+import { CloudinaryModule } from '../uploads/cloudinary.module';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { LeaseAgreement } from '../leases/lease-agreement.entity';
 import { MaintenanceRequest } from '../maintenance/maintenance-request.entity';
 import { Property } from '../properties/property.entity';
+import { PropertyDocument } from '../properties/property-document.entity';
+import { PropertyManagerAssignment } from '../properties/property-manager-assignment.entity';
 import { TenantPaymentConfirmation } from '../payment-confirmations/tenant-payment-confirmation.entity';
 import { ServiceChargeLine } from '../service-charges/service-charge-line.entity';
 import { TenantNotification } from '../tenant-notifications/tenant-notification.entity';
@@ -32,6 +35,7 @@ import { ManagersArtisansService } from './managers-artisans.service';
 @Module({
   imports: [
     AuthModule,
+    CloudinaryModule,
     MaintenanceAssignmentsModule,
     MaintenanceRealtimeModule,
     TenantNotificationsModule,
@@ -41,6 +45,8 @@ import { ManagersArtisansService } from './managers-artisans.service';
       MaintenanceRequest,
       Property,
       PropertyUnit,
+      PropertyDocument,
+      PropertyManagerAssignment,
       TenantNotification,
       TenantPaymentConfirmation,
       ServiceChargeLine,

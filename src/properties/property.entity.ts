@@ -55,6 +55,29 @@ export class Property {
   @Column({ name: 'unit_count', type: 'int', nullable: true })
   unitCount: number | null;
 
+  /** e.g. apartment | house | duplex | commercial — see PROPERTY_TYPES. */
+  @Column({ name: 'property_type', type: 'varchar', length: 32, nullable: true })
+  propertyType: string | null;
+
+  /** Amenity tags (json string array). */
+  @Column({ type: 'jsonb', default: () => "'[]'" })
+  amenities: string[];
+
+  /** Cloudinary (or legacy) image URLs. */
+  @Column({ name: 'image_urls', type: 'jsonb', default: () => "'[]'" })
+  imageUrls: string[];
+
+  /**
+   * Buildings within this property/complex.
+   * Shape: `{ name: string; floors?: number | null; unitCount?: number | null }[]`
+   */
+  @Column({ type: 'jsonb', default: () => "'[]'" })
+  buildings: Array<{
+    name: string;
+    floors?: number | null;
+    unitCount?: number | null;
+  }>;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 }
