@@ -14,11 +14,13 @@ import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
 import { AdminBootstrapService } from './admin-bootstrap.service';
 import { AdminController } from './admin.controller';
+import { AdminRealtimeModule } from './admin-realtime.module';
 import { AdminService } from './admin.service';
 
 @Module({
   imports: [
     AuthModule,
+    AdminRealtimeModule,
     TypeOrmModule.forFeature([
       User,
       Property,

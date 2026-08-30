@@ -5,6 +5,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { configuration, createTypeOrmOptions, validateEnv } from './config';
 import { AdminModule } from './admin/admin.module';
+import { AdminRealtimeModule } from './admin/admin-realtime.module';
 import { ArtisansModule } from './artisans/artisans.module';
 import { AuthModule } from './auth/auth.module';
 import { HealthModule } from './health/health.module';
@@ -39,6 +40,7 @@ import { SecuredUploadsModule } from './uploads/secured-uploads.module';
     }),
     HealthModule,
     AuthModule,
+    AdminRealtimeModule,
     AdminModule,
     ArtisansModule,
     ManagersModule,

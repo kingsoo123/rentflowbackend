@@ -19,6 +19,7 @@ import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
 import { UserRole } from '../users/user-role.enum';
 import { DEFAULT_ADMIN_EMAIL } from './admin.constants';
+import { AdminRealtimeService } from './admin-realtime.service';
 import { ListAdminUsersQueryDto } from './dto/list-admin-users.query.dto';
 
 export type AdminUserListItem = {
@@ -65,6 +66,7 @@ export class AdminService {
     @InjectRepository(TenantProfile)
     private readonly tenantProfileRepository: Repository<TenantProfile>,
     private readonly config: ConfigService,
+    private readonly adminRealtime: AdminRealtimeService,
   ) {}
 
   private platformAdminEmail(): string {
@@ -200,6 +202,8 @@ export class AdminService {
     }
 
     await this.usersRepository.delete({ id: targetUserId });
+
+    this.adminRealtime.notifyAccountsChanged('deleted');
 
     return {
       deleted: true,

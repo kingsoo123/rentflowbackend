@@ -3,17 +3,21 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Inject,
   Injectable,
   InternalServerErrorException,
   Logger,
+  Optional,
   ServiceUnavailableException,
   UnauthorizedException,
+  forwardRef,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { DataSource, EntityManager, QueryFailedError, Repository } from 'typeorm';
+import { AdminRealtimeService } from '../admin/admin-realtime.service';
 import { DEFAULT_ADMIN_EMAIL } from '../admin/admin.constants';
 import { Property } from '../properties/property.entity';
 import { TenantProfile } from '../users/tenant-profile.entity';
@@ -79,6 +83,9 @@ export class AuthService {
     private readonly loginRateLimit: LoginRateLimitService,
     private readonly zeptoMail: ZeptoMailService,
     private readonly config: ConfigService,
+    @Optional()
+    @Inject(forwardRef(() => AdminRealtimeService))
+    private readonly adminRealtime?: AdminRealtimeService,
   ) {}
 
   private platformAdminEmail(): string {
@@ -225,6 +232,16 @@ export class AuthService {
 
       return user;
     }).then(async (user) => {
+      this.emitAccountCreated({
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        role: user.role,
+        phoneCountryCode: null,
+        phoneNumber: null,
+        emailVerifiedAt: null,
+        createdAt: user.createdAt,
+      });
       await this.issueAndSendEmailOtp(user.id, user.email, user.fullName);
       return {
         ...user,
@@ -369,6 +386,17 @@ export class AuthService {
       }
       this.rethrowTenantProfileSaveError(err, 'createTenantByManager(create)');
     }
+
+    this.emitAccountCreated({
+      id: created.id,
+      email: created.email,
+      fullName: created.fullName,
+      role: created.role,
+      phoneCountryCode: null,
+      phoneNumber: null,
+      emailVerifiedAt: new Date().toISOString(),
+      createdAt: created.createdAt,
+    });
 
     return { user: created, updated: false };
   }
@@ -594,6 +622,44 @@ export class AuthService {
       );
       throw new InternalServerErrorException(
         'Could not save the user. Check API logs and DATABASE_URL.',
+      );
+    }
+  }
+
+  private emitAccountCreated(user: {
+    id: string;
+    email: string;
+    fullName: string;
+    role: string;
+    phoneCountryCode?: string | null;
+    phoneNumber?: string | null;
+    emailVerifiedAt?: Date | string | null;
+    createdAt: Date | string;
+  }): void {
+    try {
+      const verified =
+        user.emailVerifiedAt instanceof Date
+          ? user.emailVerifiedAt.toISOString()
+          : typeof user.emailVerifiedAt === 'string'
+            ? user.emailVerifiedAt
+            : null;
+      const createdAt =
+        user.createdAt instanceof Date
+          ? user.createdAt.toISOString()
+          : new Date(user.createdAt).toISOString();
+      this.adminRealtime?.notifyAccountCreated({
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        role: user.role,
+        phoneCountryCode: user.phoneCountryCode ?? null,
+        phoneNumber: user.phoneNumber ?? null,
+        emailVerifiedAt: verified,
+        createdAt,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `admin realtime notify failed: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   }

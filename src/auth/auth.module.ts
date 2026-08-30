@@ -1,7 +1,8 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AdminRealtimeModule } from '../admin/admin-realtime.module';
 import { EmailModule } from '../email/email.module';
 import { Property } from '../properties/property.entity';
 import { TenantProfile } from '../users/tenant-profile.entity';
@@ -13,6 +14,7 @@ import { LoginRateLimitService } from './login-rate-limit.service';
 @Module({
   imports: [
     EmailModule,
+    forwardRef(() => AdminRealtimeModule),
     TypeOrmModule.forFeature([User, TenantProfile, Property]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
