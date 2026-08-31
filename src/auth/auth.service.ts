@@ -264,29 +264,36 @@ export class AuthService {
     if (user.emailVerifiedAt) {
       return { verified: true, email: user.email };
     }
-    if (!user.emailOtpHash || !user.emailOtpExpiresAt) {
-      throw new BadRequestException(
-        'No active verification code. Request a new code.',
-      );
-    }
-    if (user.emailOtpAttempts >= OTP_MAX_ATTEMPTS) {
-      throw new BadRequestException(
-        'Too many incorrect attempts. Request a new verification code.',
-      );
-    }
-    if (user.emailOtpExpiresAt.getTime() < Date.now()) {
-      throw new BadRequestException(
-        'This verification code has expired. Request a new one.',
-      );
-    }
 
-    const incomingHash = this.hashOtp(dto.code);
-    if (incomingHash !== user.emailOtpHash) {
-      await this.usersRepository.update(
-        { id: user.id },
-        { emailOtpAttempts: user.emailOtpAttempts + 1 },
-      );
-      throw new BadRequestException('Invalid verification code');
+    const code = dto.code.trim();
+    const demoOtp = this.demoOtpCode();
+    const demoMatch = Boolean(demoOtp && code === demoOtp);
+
+    if (!demoMatch) {
+      if (!user.emailOtpHash || !user.emailOtpExpiresAt) {
+        throw new BadRequestException(
+          'No active verification code. Request a new code.',
+        );
+      }
+      if (user.emailOtpAttempts >= OTP_MAX_ATTEMPTS) {
+        throw new BadRequestException(
+          'Too many incorrect attempts. Request a new verification code.',
+        );
+      }
+      if (user.emailOtpExpiresAt.getTime() < Date.now()) {
+        throw new BadRequestException(
+          'This verification code has expired. Request a new one.',
+        );
+      }
+
+      const incomingHash = this.hashOtp(code);
+      if (incomingHash !== user.emailOtpHash) {
+        await this.usersRepository.update(
+          { id: user.id },
+          { emailOtpAttempts: user.emailOtpAttempts + 1 },
+        );
+        throw new BadRequestException('Invalid verification code');
+      }
     }
 
     await this.usersRepository.update(
@@ -494,7 +501,20 @@ export class AuthService {
     return [...seen.values()];
   }
 
+  /** When set (e.g. AUTH_DEMO_OTP=111111), that code is issued and always accepted. */
+  private demoOtpCode(): string | null {
+    const raw = this.config.get<string>('AUTH_DEMO_OTP')?.trim();
+    if (!raw || !/^\d{6}$/.test(raw)) {
+      return null;
+    }
+    return raw;
+  }
+
   private generateOtpCode(): string {
+    const demo = this.demoOtpCode();
+    if (demo) {
+      return demo;
+    }
     const max = 10 ** OTP_LENGTH;
     return String(randomInt(0, max)).padStart(OTP_LENGTH, '0');
   }
@@ -508,7 +528,8 @@ export class AuthService {
     email: string,
     fullName: string,
   ): Promise<void> {
-    if (!this.zeptoMail.isConfigured()) {
+    const demo = this.demoOtpCode();
+    if (!demo && !this.zeptoMail.isConfigured()) {
       throw new ServiceUnavailableException(
         'Email verification is temporarily unavailable (ZEPTOMAIL_TOKEN not configured).',
       );
@@ -525,6 +546,16 @@ export class AuthService {
       },
     );
 
+    if (demo) {
+      this.logger.warn(
+        `AUTH_DEMO_OTP active — verification code for ${email} is ${demo} (email send optional)`,
+      );
+    }
+
+    if (!this.zeptoMail.isConfigured()) {
+      return;
+    }
+
     const send = await this.zeptoMail.sendSignupOtp({
       to: email,
       fullName,
@@ -533,6 +564,10 @@ export class AuthService {
     });
     if (!send.ok) {
       this.logger.error(`Failed to send signup OTP to ${email}: ${send.message}`);
+      if (demo) {
+        // Demo can proceed with AUTH_DEMO_OTP even when ZeptoMail quota is exhausted.
+        return;
+      }
       throw new ServiceUnavailableException(
         'We could not send the verification email. Please try again in a moment.',
       );
