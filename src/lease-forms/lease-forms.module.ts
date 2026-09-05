@@ -26,8 +26,6 @@ import { TenantLeaseFormsService } from './tenant-lease-forms.service';
   providers: [
     TenantLeaseFormsService,
     LeaseFormPdfService,
-    JwtAuthGuard,
-    RolesGuard,
   ],
 })
 export class LeaseFormsModule {}

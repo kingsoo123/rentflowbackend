@@ -26,7 +26,7 @@ import { TenantLeasesController } from './tenant-leases.controller';
     TypeOrmModule.forFeature([LeaseAgreement, Property, User, TenantProfile]),
   ],
   controllers: [ManagersLeasesController, TenantLeasesController],
-  providers: [LeasesService, LeasePdfService, JwtAuthGuard, RolesGuard],
+  providers: [LeasesService, LeasePdfService],
   exports: [LeasesService],
 })
 export class LeasesModule {}

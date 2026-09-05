@@ -49,8 +49,6 @@ import { TenantsDirectMessagesController } from './tenants-direct-messages.contr
     ManagerDirectMessagesGateway,
     TenantDirectMessagesGateway,
     ArtisanDirectMessagesGateway,
-    JwtAuthGuard,
-    RolesGuard,
   ],
   exports: [DirectMessagesService, ManagerArtisanDirectMessagesService, DirectMessagesRealtimeService],
 })

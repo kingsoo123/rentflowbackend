@@ -22,6 +22,7 @@ import { FirebaseModule } from './firebase/firebase.module';
 import { PaymentConfirmationsModule } from './payment-confirmations/payment-confirmations.module';
 import { DirectMessagesModule } from './direct-messages/direct-messages.module';
 import { SecuredUploadsModule } from './uploads/secured-uploads.module';
+import { PricingModule } from './pricing/pricing.module';
 
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import { SecuredUploadsModule } from './uploads/secured-uploads.module';
     InspectionsModule,
     LeasesModule,
     SecuredUploadsModule,
+    PricingModule,
   ],
   controllers: [AppController],
   providers: [AppService],

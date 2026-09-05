@@ -12,6 +12,7 @@ import { PropertyBroadcast } from '../tenant-notifications/property-broadcast.en
 import { TenantNotification } from '../tenant-notifications/tenant-notification.entity';
 import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
+import { PricingCheckout } from '../pricing/pricing-checkout.entity';
 import { AdminBootstrapService } from './admin-bootstrap.service';
 import { AdminController } from './admin.controller';
 import { AdminRealtimeModule } from './admin-realtime.module';
@@ -31,9 +32,10 @@ import { AdminService } from './admin.service';
       TenantNotification,
       InspectionRecord,
       TenantProfile,
+      PricingCheckout,
     ]),
   ],
   controllers: [AdminController],
-  providers: [AdminService, AdminBootstrapService, JwtAuthGuard, RolesGuard],
+  providers: [AdminService, AdminBootstrapService],
 })
 export class AdminModule {}

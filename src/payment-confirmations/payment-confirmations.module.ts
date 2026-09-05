@@ -33,8 +33,6 @@ import { TenantPaymentConfirmationsService } from './tenant-payment-confirmation
   providers: [
     TenantPaymentConfirmationsService,
     PaymentReceiptPdfService,
-    JwtAuthGuard,
-    RolesGuard,
   ],
 })
 export class PaymentConfirmationsModule {}

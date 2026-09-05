@@ -20,7 +20,7 @@ import { ArtisansService } from './artisans.service';
     TypeOrmModule.forFeature([User, ManagerArtisanRoster, MaintenanceRequest, TenantProfile]),
   ],
   controllers: [ArtisansController],
-  providers: [ArtisansService, JwtAuthGuard, RolesGuard],
+  providers: [ArtisansService],
   exports: [ArtisansService],
 })
 export class ArtisansModule {}

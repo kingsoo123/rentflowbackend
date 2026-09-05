@@ -5,17 +5,21 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AdminRealtimeModule } from '../admin/admin-realtime.module';
 import { EmailModule } from '../email/email.module';
 import { Property } from '../properties/property.entity';
+import { PricingCheckout } from '../pricing/pricing-checkout.entity';
 import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { LoginRateLimitService } from './login-rate-limit.service';
+import { PropertyManagerSubscriptionService } from './property-manager-subscription.service';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { RolesGuard } from './guards/roles.guard';
 
 @Module({
   imports: [
     EmailModule,
     forwardRef(() => AdminRealtimeModule),
-    TypeOrmModule.forFeature([User, TenantProfile, Property]),
+    TypeOrmModule.forFeature([User, TenantProfile, Property, PricingCheckout]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -41,7 +45,13 @@ import { LoginRateLimitService } from './login-rate-limit.service';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, LoginRateLimitService],
-  exports: [JwtModule, AuthService],
+  providers: [
+    AuthService,
+    LoginRateLimitService,
+    PropertyManagerSubscriptionService,
+    JwtAuthGuard,
+    RolesGuard,
+  ],
+  exports: [JwtModule, AuthService, JwtAuthGuard, RolesGuard, PropertyManagerSubscriptionService],
 })
 export class AuthModule {}

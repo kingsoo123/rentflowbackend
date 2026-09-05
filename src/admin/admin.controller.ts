@@ -17,6 +17,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import type { JwtAccessPayload } from '../auth/types/jwt-payload';
 import { UserRole } from '../users/user-role.enum';
 import { AdminService } from './admin.service';
+import { ListAdminSubscriptionPaymentsQueryDto } from './dto/list-admin-subscription-payments.query.dto';
 import { ListAdminUsersQueryDto } from './dto/list-admin-users.query.dto';
 
 type AuthedAdminRequest = Request & { user: JwtAccessPayload };
@@ -35,6 +36,11 @@ export class AdminController {
   @Get('users')
   listUsers(@Query() query: ListAdminUsersQueryDto) {
     return this.adminService.listUsers(query);
+  }
+
+  @Get('subscription-payments')
+  listSubscriptionPayments(@Query() query: ListAdminSubscriptionPaymentsQueryDto) {
+    return this.adminService.listSubscriptionPayments(query);
   }
 
   @Get('users/:id')

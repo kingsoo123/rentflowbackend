@@ -19,7 +19,7 @@ import { TenantsServiceChargesController } from './tenants-service-charges.contr
     TypeOrmModule.forFeature([ServiceChargeLine, Property]),
   ],
   controllers: [ManagersPropertyServiceChargesController, TenantsServiceChargesController],
-  providers: [ServiceChargesService, JwtAuthGuard, RolesGuard],
+  providers: [ServiceChargesService],
   exports: [ServiceChargesService],
 })
 export class ServiceChargesModule {}

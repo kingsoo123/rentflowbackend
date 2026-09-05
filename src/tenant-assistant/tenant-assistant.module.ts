@@ -17,6 +17,6 @@ import { TenantAssistantService } from './tenant-assistant.service';
     TypeOrmModule.forFeature([User]),
   ],
   controllers: [TenantAssistantController],
-  providers: [TenantAssistantService, JwtAuthGuard, RolesGuard],
+  providers: [TenantAssistantService],
 })
 export class TenantAssistantModule {}

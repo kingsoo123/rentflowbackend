@@ -19,7 +19,7 @@ import { TenantMaintenanceRequestsService } from './tenant-maintenance-requests.
     TypeOrmModule.forFeature([MaintenanceRequest]),
   ],
   controllers: [TenantMaintenanceRequestsController],
-  providers: [TenantMaintenanceRequestsService, JwtAuthGuard, RolesGuard],
+  providers: [TenantMaintenanceRequestsService],
   exports: [TenantMaintenanceRequestsService, MaintenanceRealtimeModule],
 })
 export class MaintenanceModule {}

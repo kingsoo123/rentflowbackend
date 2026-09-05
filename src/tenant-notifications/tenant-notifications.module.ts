@@ -43,8 +43,6 @@ import { MaintenanceRealtimeModule } from '../maintenance/maintenance-realtime.m
     TenantNotificationsRealtimeService,
     TenantNotificationsRealtimeGateway,
     RentRenewalMailService,
-    JwtAuthGuard,
-    RolesGuard,
   ],
   exports: [TenantNotificationsService, TenantNotificationsRealtimeService],
 })

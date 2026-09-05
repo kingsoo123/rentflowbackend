@@ -18,8 +18,11 @@ import { TenantNotification } from '../tenant-notifications/tenant-notification.
 import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
 import { UserRole } from '../users/user-role.enum';
+import { PricingCheckout } from '../pricing/pricing-checkout.entity';
+import { PricingCheckoutStatus } from '../pricing/pricing-checkout-status.enum';
 import { DEFAULT_ADMIN_EMAIL } from './admin.constants';
 import { AdminRealtimeService } from './admin-realtime.service';
+import { ListAdminSubscriptionPaymentsQueryDto } from './dto/list-admin-subscription-payments.query.dto';
 import { ListAdminUsersQueryDto } from './dto/list-admin-users.query.dto';
 
 export type AdminUserListItem = {
@@ -42,6 +45,29 @@ export type AdminStats = {
   properties: number;
   leases: number;
   openMaintenance: number;
+  subscriptionPayments: {
+    total: number;
+    pending: number;
+    successful: number;
+    failed: number;
+    cancelled: number;
+  };
+};
+
+export type AdminSubscriptionPaymentListItem = {
+  id: string;
+  txRef: string;
+  planId: string;
+  planName: string;
+  amountNgn: number;
+  currency: string;
+  customerName: string;
+  customerEmail: string;
+  customerPhone: string | null;
+  status: PricingCheckoutStatus;
+  flutterwaveTransactionId: string | null;
+  paidAt: string | null;
+  createdAt: string;
 };
 
 @Injectable()
@@ -65,6 +91,8 @@ export class AdminService {
     private readonly inspectionRepository: Repository<InspectionRecord>,
     @InjectRepository(TenantProfile)
     private readonly tenantProfileRepository: Repository<TenantProfile>,
+    @InjectRepository(PricingCheckout)
+    private readonly pricingCheckoutRepository: Repository<PricingCheckout>,
     private readonly config: ConfigService,
     private readonly adminRealtime: AdminRealtimeService,
   ) {}
@@ -87,6 +115,7 @@ export class AdminService {
       properties,
       leases,
       openMaintenance,
+      subscriptionPayments,
     ] = await Promise.all([
       this.usersRepository.count(),
       this.usersRepository.count({
@@ -100,6 +129,7 @@ export class AdminService {
       this.maintenanceRepository.count({
         where: { status: Not(MaintenanceRequestStatus.RESOLVED) },
       }),
+      this.subscriptionPaymentCounts(),
     ]);
 
     return {
@@ -111,6 +141,43 @@ export class AdminService {
       properties,
       leases,
       openMaintenance,
+      subscriptionPayments,
+    };
+  }
+
+  async listSubscriptionPayments(
+    query: ListAdminSubscriptionPaymentsQueryDto,
+  ): Promise<{
+    items: AdminSubscriptionPaymentListItem[];
+    total: number;
+    page: number;
+    limit: number;
+  }> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 25;
+    const qb = this.pricingCheckoutRepository
+      .createQueryBuilder('p')
+      .orderBy('p.createdAt', 'DESC')
+      .skip((page - 1) * limit)
+      .take(limit);
+
+    if (query.status) {
+      qb.andWhere('p.status = :status', { status: query.status });
+    }
+    const search = query.search?.trim();
+    if (search) {
+      qb.andWhere(
+        `(p.customerName ILIKE :term ESCAPE '\\' OR p.customerEmail ILIKE :term ESCAPE '\\' OR p.txRef ILIKE :term ESCAPE '\\' OR p.planName ILIKE :term ESCAPE '\\')`,
+        { term: `%${search.replace(/[%_\\]/g, '\\$&')}%` },
+      );
+    }
+
+    const [rows, total] = await qb.getManyAndCount();
+    return {
+      items: rows.map((row) => this.toSubscriptionPaymentItem(row)),
+      total,
+      page,
+      limit,
     };
   }
 
@@ -210,6 +277,45 @@ export class AdminService {
       id: target.id,
       email: target.email,
       role: target.role,
+    };
+  }
+
+  private async subscriptionPaymentCounts() {
+    const [total, pending, successful, failed, cancelled] = await Promise.all([
+      this.pricingCheckoutRepository.count(),
+      this.pricingCheckoutRepository.count({
+        where: { status: PricingCheckoutStatus.PENDING },
+      }),
+      this.pricingCheckoutRepository.count({
+        where: { status: PricingCheckoutStatus.SUCCESSFUL },
+      }),
+      this.pricingCheckoutRepository.count({
+        where: { status: PricingCheckoutStatus.FAILED },
+      }),
+      this.pricingCheckoutRepository.count({
+        where: { status: PricingCheckoutStatus.CANCELLED },
+      }),
+    ]);
+    return { total, pending, successful, failed, cancelled };
+  }
+
+  private toSubscriptionPaymentItem(
+    row: PricingCheckout,
+  ): AdminSubscriptionPaymentListItem {
+    return {
+      id: row.id,
+      txRef: row.txRef,
+      planId: row.planId,
+      planName: row.planName,
+      amountNgn: row.amountNgn,
+      currency: row.currency,
+      customerName: row.customerName,
+      customerEmail: row.customerEmail,
+      customerPhone: row.customerPhone,
+      status: row.status,
+      flutterwaveTransactionId: row.flutterwaveTransactionId,
+      paidAt: row.paidAt ? new Date(row.paidAt).toISOString() : null,
+      createdAt: new Date(row.createdAt).toISOString(),
     };
   }
 

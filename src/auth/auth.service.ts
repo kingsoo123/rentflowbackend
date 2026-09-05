@@ -30,6 +30,7 @@ import { SignupDto } from './dto/signup.dto';
 import type { CreateTenantDto } from './dto/create-tenant.dto';
 import type { JwtAccessPayload } from './types/jwt-payload';
 import { LoginRateLimitService } from './login-rate-limit.service';
+import { PropertyManagerSubscriptionService } from './property-manager-subscription.service';
 import { ZeptoMailService } from '../email/zeptomail.service';
 import type { VerifyEmailOtpDto } from './dto/verify-email-otp.dto';
 import type { ResendEmailOtpDto } from './dto/resend-email-otp.dto';
@@ -83,6 +84,7 @@ export class AuthService {
     private readonly loginRateLimit: LoginRateLimitService,
     private readonly zeptoMail: ZeptoMailService,
     private readonly config: ConfigService,
+    private readonly managerSubscription: PropertyManagerSubscriptionService,
     @Optional()
     @Inject(forwardRef(() => AdminRealtimeService))
     private readonly adminRealtime?: AdminRealtimeService,
@@ -126,6 +128,10 @@ export class AuthService {
         code: 'EMAIL_NOT_VERIFIED',
         email: user.email,
       });
+    }
+
+    if (user.role === UserRole.PROPERTY_MANAGER) {
+      await this.managerSubscription.assertPropertyManagerHasPaid(user.email);
     }
 
     this.loginRateLimit.recordSuccess(dto.email, clientIp);
@@ -180,6 +186,10 @@ export class AuthService {
       throw new BadRequestException(
         'Enter at least one property name. Separate multiple properties with commas.',
       );
+    }
+
+    if (dto.role === UserRole.PROPERTY_MANAGER) {
+      await this.managerSubscription.assertPropertyManagerHasPaid(dto.email);
     }
 
     const phone = normalizeSignupPhone(dto.phoneCountryCode, dto.phoneNumber);
@@ -307,6 +317,18 @@ export class AuthService {
     );
 
     return { verified: true, email: user.email };
+  }
+
+  async getSubscriptionStatus(user: JwtAccessPayload): Promise<{
+    subscribed: boolean;
+    role: string;
+  }> {
+    if (user.role !== UserRole.PROPERTY_MANAGER) {
+      return { subscribed: true, role: user.role };
+    }
+    const subscribed =
+      await this.managerSubscription.hasSuccessfulCheckoutForEmail(user.email);
+    return { subscribed, role: user.role };
   }
 
   async resendEmailOtp(dto: ResendEmailOtpDto): Promise<{ sent: true; email: string }> {

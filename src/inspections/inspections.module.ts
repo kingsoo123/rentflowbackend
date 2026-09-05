@@ -22,7 +22,7 @@ import { TenantInspectionsController } from './tenant-inspections.controller';
     TypeOrmModule.forFeature([InspectionRecord, Property, User]),
   ],
   controllers: [ManagersInspectionsController, TenantInspectionsController],
-  providers: [InspectionsService, JwtAuthGuard, RolesGuard],
+  providers: [InspectionsService],
   exports: [InspectionsService],
 })
 export class InspectionsModule {}

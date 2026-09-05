@@ -36,4 +36,18 @@ export class AdminRealtimeService {
     }
     this.namespace.to('admins').emit('accounts:changed', { reason });
   }
+
+  notifySubscriptionPaymentChanged(payload: {
+    id: string;
+    txRef: string;
+    status: string;
+    planName: string;
+    customerEmail: string;
+    amountNgn: number;
+  }): void {
+    if (!this.namespace) {
+      return;
+    }
+    this.namespace.to('admins').emit('subscription-payment:changed', payload);
+  }
 }
