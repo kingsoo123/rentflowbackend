@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PaymentConfirmationStatus } from '../payment-confirmations/payment-confirmation-status.enum';
@@ -8,6 +8,7 @@ import type { ManagerMaintenanceRequestRow } from './managers-maintenance-reques
 import { ManagersMaintenanceRequestsService } from './managers-maintenance-requests.service';
 import { ManagersPortfolioService } from './managers-portfolio.service';
 import { ManagersTenantsService } from './managers-tenants.service';
+import { PropertyManagerSubscriptionService } from '../auth/property-manager-subscription.service';
 
 @Injectable()
 export class ManagerAssistantService {
@@ -19,11 +20,21 @@ export class ManagerAssistantService {
     private readonly managersPortfolioService: ManagersPortfolioService,
     private readonly managersTenantsService: ManagersTenantsService,
     private readonly managersMaintenanceRequestsService: ManagersMaintenanceRequestsService,
+    private readonly subscriptionService: PropertyManagerSubscriptionService,
   ) {}
 
   async reply(managerUserId: string, rawMessage: string): Promise<{ reply: string }> {
-    const message = rawMessage.trim();
     const user = await this.usersRepository.findOne({ where: { id: managerUserId } });
+    if (!user) {
+      throw new NotFoundException('Manager not found');
+    }
+    await this.subscriptionService.assertHasFeature(
+      user.email,
+      managerUserId,
+      'assistant',
+    );
+
+    const message = rawMessage.trim();
     const firstName = firstToken(user?.fullName) ?? 'there';
     const fullName = user?.fullName?.trim() || 'Property manager';
     const email = user?.email?.trim() || 'the email on your account';

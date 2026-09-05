@@ -31,6 +31,7 @@ import type { CreateTenantDto } from './dto/create-tenant.dto';
 import type { JwtAccessPayload } from './types/jwt-payload';
 import { LoginRateLimitService } from './login-rate-limit.service';
 import { PropertyManagerSubscriptionService } from './property-manager-subscription.service';
+import type { PlanEntitlements } from '../pricing/pricing-plans';
 import { ZeptoMailService } from '../email/zeptomail.service';
 import type { VerifyEmailOtpDto } from './dto/verify-email-otp.dto';
 import type { ResendEmailOtpDto } from './dto/resend-email-otp.dto';
@@ -326,6 +327,10 @@ export class AuthService {
     daysRemaining: number | null;
     expiringSoon: boolean;
     reason: string;
+    planId: string | null;
+    planName: string | null;
+    entitlements: PlanEntitlements;
+    usage: { unitCount: number; propertyCount: number };
   }> {
     if (user.role !== UserRole.PROPERTY_MANAGER) {
       return {
@@ -335,18 +340,27 @@ export class AuthService {
         daysRemaining: null,
         expiringSoon: false,
         reason: 'not_applicable',
+        planId: null,
+        planName: null,
+        entitlements: { maxUnits: null, features: [] },
+        usage: { unitCount: 0, propertyCount: 0 },
       };
     }
-    const state = await this.managerSubscription.getSubscriptionStateForEmail(
+    const detail = await this.managerSubscription.getManagerSubscriptionDetail(
       user.email,
+      user.sub,
     );
     return {
-      subscribed: state.active,
+      subscribed: detail.active,
       role: user.role,
-      expiresAt: state.expiresAt ? state.expiresAt.toISOString() : null,
-      daysRemaining: state.daysRemaining,
-      expiringSoon: state.expiringSoon,
-      reason: state.reason,
+      expiresAt: detail.expiresAt ? detail.expiresAt.toISOString() : null,
+      daysRemaining: detail.daysRemaining,
+      expiringSoon: detail.expiringSoon,
+      reason: detail.reason,
+      planId: detail.planId,
+      planName: detail.planName,
+      entitlements: detail.entitlements,
+      usage: detail.usage,
     };
   }
 

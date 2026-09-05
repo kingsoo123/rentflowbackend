@@ -1,8 +1,22 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { Property } from '../properties/property.entity';
+import { PropertyUnit } from '../properties/property-unit.entity';
 import { PricingCheckout } from '../pricing/pricing-checkout.entity';
 import { PricingCheckoutStatus } from '../pricing/pricing-checkout-status.enum';
+import {
+  getPlanEntitlements,
+  getPricingPlan,
+  isPricingPlanId,
+  type PlanEntitlements,
+  type PricingPlanId,
+} from '../pricing/pricing-plans';
+import {
+  PLAN_FEATURE_LABELS,
+  planIncludesFeature,
+  type PlanFeature,
+} from '../pricing/plan-features';
 
 export const SUBSCRIPTION_TERM_MONTHS = 1;
 export const SUBSCRIPTION_EXPIRING_SOON_DAYS = 7;
@@ -21,11 +35,27 @@ export type ManagerSubscriptionState = {
   expiringSoon: boolean;
 };
 
+export type ManagerSubscriptionUsage = {
+  unitCount: number;
+  propertyCount: number;
+};
+
+export type ManagerSubscriptionDetail = ManagerSubscriptionState & {
+  planId: PricingPlanId | null;
+  planName: string | null;
+  entitlements: PlanEntitlements;
+  usage: ManagerSubscriptionUsage;
+};
+
 @Injectable()
 export class PropertyManagerSubscriptionService {
   constructor(
     @InjectRepository(PricingCheckout)
     private readonly checkoutsRepository: Repository<PricingCheckout>,
+    @InjectRepository(Property)
+    private readonly propertyRepository: Repository<Property>,
+    @InjectRepository(PropertyUnit)
+    private readonly unitRepository: Repository<PropertyUnit>,
   ) {}
 
   async getSubscriptionStateForEmail(
@@ -36,13 +66,7 @@ export class PropertyManagerSubscriptionService {
       return this.inactiveState('never_subscribed');
     }
 
-    const latest = await this.checkoutsRepository.findOne({
-      where: {
-        customerEmail: normalized,
-        status: PricingCheckoutStatus.SUCCESSFUL,
-      },
-      order: { paidAt: 'DESC', createdAt: 'DESC' },
-    });
+    const latest = await this.findLatestSuccessfulCheckout(normalized);
 
     if (!latest) {
       return this.inactiveState('never_subscribed');
@@ -72,6 +96,37 @@ export class PropertyManagerSubscriptionService {
       expiresAt,
       daysRemaining,
       expiringSoon,
+    };
+  }
+
+  async getManagerSubscriptionDetail(
+    email: string,
+    managerUserId: string,
+  ): Promise<ManagerSubscriptionDetail> {
+    const state = await this.getSubscriptionStateForEmail(email);
+    const normalized = email.trim().toLowerCase();
+    const latest = normalized
+      ? await this.findLatestSuccessfulCheckout(normalized)
+      : null;
+
+    let planId: PricingPlanId | null = null;
+    let planName: string | null = null;
+    let entitlements: PlanEntitlements = { maxUnits: null, features: [] };
+
+    if (latest && isPricingPlanId(latest.planId)) {
+      planId = latest.planId;
+      planName = latest.planName?.trim() || getPricingPlan(planId).name;
+      entitlements = getPlanEntitlements(planId);
+    }
+
+    const usage = await this.getUsageForManager(managerUserId);
+
+    return {
+      ...state,
+      planId,
+      planName,
+      entitlements,
+      usage,
     };
   }
 
@@ -105,6 +160,88 @@ export class PropertyManagerSubscriptionService {
         email: normalized,
       });
     });
+  }
+
+  async assertCanAddUnit(email: string, managerUserId: string): Promise<void> {
+    const detail = await this.getManagerSubscriptionDetail(email, managerUserId);
+    if (!detail.active) {
+      await this.assertPropertyManagerHasPaid(email);
+      return;
+    }
+
+    const maxUnits = detail.entitlements.maxUnits;
+    if (maxUnits == null) {
+      return;
+    }
+
+    if (detail.usage.unitCount >= maxUnits) {
+      throw new ForbiddenException({
+        message: `Your ${detail.planName ?? 'current'} plan allows up to ${maxUnits} units. Upgrade to Enterprise for unlimited units.`,
+        code: 'PLAN_LIMIT_REACHED',
+        limit: 'units',
+        maxUnits,
+        unitCount: detail.usage.unitCount,
+        planId: detail.planId,
+      });
+    }
+  }
+
+  async assertHasFeature(
+    email: string,
+    managerUserId: string,
+    feature: PlanFeature,
+  ): Promise<void> {
+    const detail = await this.getManagerSubscriptionDetail(email, managerUserId);
+    if (!detail.active) {
+      await this.assertPropertyManagerHasPaid(email);
+      return;
+    }
+
+    if (planIncludesFeature(detail.entitlements.features, feature)) {
+      return;
+    }
+
+    const label = PLAN_FEATURE_LABELS[feature];
+    throw new ForbiddenException({
+      message: `${label} is included on Enterprise. Upgrade to unlock this feature.`,
+      code: 'PLAN_FEATURE_UNAVAILABLE',
+      feature,
+      planId: detail.planId,
+    });
+  }
+
+  private async findLatestSuccessfulCheckout(
+    normalizedEmail: string,
+  ): Promise<PricingCheckout | null> {
+    return this.checkoutsRepository.findOne({
+      where: {
+        customerEmail: normalizedEmail,
+        status: PricingCheckoutStatus.SUCCESSFUL,
+      },
+      order: { paidAt: 'DESC', createdAt: 'DESC' },
+    });
+  }
+
+  private async getUsageForManager(
+    managerUserId: string,
+  ): Promise<ManagerSubscriptionUsage> {
+    const [unitCount, propertyCount] = await Promise.all([
+      this.countUnitsForManager(managerUserId),
+      this.countPropertiesForManager(managerUserId),
+    ]);
+    return { unitCount, propertyCount };
+  }
+
+  private async countUnitsForManager(managerUserId: string): Promise<number> {
+    return this.unitRepository
+      .createQueryBuilder('u')
+      .innerJoin(Property, 'p', 'p.id = u.propertyId')
+      .where('p.managerUserId = :managerUserId', { managerUserId })
+      .getCount();
+  }
+
+  private async countPropertiesForManager(managerUserId: string): Promise<number> {
+    return this.propertyRepository.count({ where: { managerUserId } });
   }
 
   private inactiveState(

@@ -22,6 +22,7 @@ import { PropertyUnit } from '../properties/property-unit.entity';
 import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
 import { UserRole } from '../users/user-role.enum';
+import { PropertyManagerSubscriptionService } from '../auth/property-manager-subscription.service';
 
 export type ManagerPropertyBuilding = {
   name: string;
@@ -132,6 +133,7 @@ export class ManagersPortfolioService {
     private readonly documentRepository: Repository<PropertyDocument>,
     @InjectRepository(PropertyManagerAssignment)
     private readonly assignmentRepository: Repository<PropertyManagerAssignment>,
+    private readonly subscriptionService: PropertyManagerSubscriptionService,
   ) {}
 
   private async assertPropertyManager(managerUserId: string): Promise<User> {
@@ -710,7 +712,12 @@ export class ManagersPortfolioService {
     propertyId: string,
     email: string,
   ): Promise<ManagerPropertyDetail> {
-    await this.assertPropertyManager(managerUserId);
+    const owner = await this.assertPropertyManager(managerUserId);
+    await this.subscriptionService.assertHasFeature(
+      owner.email,
+      managerUserId,
+      'multi_manager',
+    );
     await this.assertPrimaryOwner(managerUserId, propertyId);
     const normalized = email.trim().toLowerCase();
     const assignee = await this.usersRepository.findOne({

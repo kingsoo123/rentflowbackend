@@ -17,6 +17,7 @@ import {
 import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
 import { UserRole } from '../users/user-role.enum';
+import { PropertyManagerSubscriptionService } from '../auth/property-manager-subscription.service';
 import type { CreatePropertyUnitDto } from './dto/create-property-unit.dto';
 import type { UpdatePropertyUnitDto } from './dto/update-property-unit.dto';
 
@@ -63,6 +64,7 @@ export class ManagersUnitsService {
     private readonly unitRepository: Repository<PropertyUnit>,
     @InjectRepository(TenantProfile)
     private readonly tenantProfileRepository: Repository<TenantProfile>,
+    private readonly subscriptionService: PropertyManagerSubscriptionService,
   ) {}
 
   private async assertManager(managerUserId: string): Promise<void> {
@@ -164,6 +166,16 @@ export class ManagersUnitsService {
     return rows.map((r) => this.mapUnit(r, occ.get(r.id)));
   }
 
+  private async assertCanAddUnitForManager(managerUserId: string): Promise<void> {
+    const user = await this.usersRepository.findOne({
+      where: { id: managerUserId, role: UserRole.PROPERTY_MANAGER },
+    });
+    if (!user) {
+      throw new NotFoundException('Manager not found');
+    }
+    await this.subscriptionService.assertCanAddUnit(user.email, managerUserId);
+  }
+
   async createUnit(
     managerUserId: string,
     propertyId: string,
@@ -171,6 +183,7 @@ export class ManagersUnitsService {
   ): Promise<ManagerPropertyUnitDetail> {
     await this.assertManager(managerUserId);
     await this.assertOwnedProperty(managerUserId, propertyId);
+    await this.assertCanAddUnitForManager(managerUserId);
     const label = dto.label.trim();
     const row = this.unitRepository.create({
       propertyId,
@@ -320,6 +333,7 @@ export class ManagersUnitsService {
         })
         .getOne();
       if (!unit) {
+        await this.assertCanAddUnitForManager(managerUserId);
         try {
           unit = await this.unitRepository.save(
             this.unitRepository.create({

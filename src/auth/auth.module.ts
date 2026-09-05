@@ -5,6 +5,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AdminRealtimeModule } from '../admin/admin-realtime.module';
 import { EmailModule } from '../email/email.module';
 import { Property } from '../properties/property.entity';
+import { PropertyUnit } from '../properties/property-unit.entity';
 import { PricingCheckout } from '../pricing/pricing-checkout.entity';
 import { TenantProfile } from '../users/tenant-profile.entity';
 import { User } from '../users/user.entity';
@@ -19,7 +20,7 @@ import { RolesGuard } from './guards/roles.guard';
   imports: [
     EmailModule,
     forwardRef(() => AdminRealtimeModule),
-    TypeOrmModule.forFeature([User, TenantProfile, Property, PricingCheckout]),
+    TypeOrmModule.forFeature([User, TenantProfile, Property, PropertyUnit, PricingCheckout]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
