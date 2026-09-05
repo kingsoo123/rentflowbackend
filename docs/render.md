@@ -94,6 +94,24 @@ FCM is **off** until credentials are set. The mobile app stores **Android** FCM 
 | `FIREBASE_SERVICE_ACCOUNT_BASE64` | Base64-encoded contents of your Firebase **service account** JSON (Firebase Console → Project settings → Service accounts → Generate new private key). Single line, no newlines. |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Alternative for some hosts: absolute path to the JSON key file (less common on Render; prefer base64 env). |
 
+### Optional — Flutterwave (landing page pricing checkout)
+
+Required for **Choose Pro / Subscribe** on the marketing site. Without these, `POST /api/pricing/checkout` returns **503** (“Set FLUTTERWAVE_SECRET_KEY on the API server”).
+
+| Variable | Description |
+|----------|-------------|
+| `FLUTTERWAVE_SECRET_KEY` | Flutterwave **v3 Secret key** (Dashboard → Settings → API). Use `FLWSECK_TEST-...` for sandbox; use **`FLWSECK-...` (live)** on production when accepting real payments. **Not** the v4 Client ID/Secret. |
+| `FLUTTERWAVE_WEBHOOK_HASH` | Webhook secret hash (Dashboard → Settings → Webhooks). Sent as `verif-hash` header; used to verify payment webhooks. |
+| `PUBLIC_WEB_URL` | Public site URL for post-payment redirect, **no trailing slash**. Example: `https://rentpilot.com.ng`. Defaults to first `CORS_ORIGIN` entry if unset. |
+
+**Flutterwave webhook URL (production):**
+
+`https://<your-api-host>/api/pricing/webhooks/flutterwave`
+
+Example: `https://rentflowbackend.onrender.com/api/pricing/webhooks/flutterwave`
+
+After adding or changing these on Render, **save** env vars and wait for the service to redeploy (or trigger **Manual Deploy**).
+
 ---
 
 ## Frontend + WebSockets
@@ -110,4 +128,5 @@ FCM is **off** until credentials are set. The mobile app stores **Android** FCM 
 3. `JWT_SECRET` ≥ 16 characters.
 4. `CORS_ORIGIN` includes your deployed frontend origin(s).
 5. Run `npm run typeorm:migration:run` at least once against that database.
-6. Smoke-test: `GET https://<your-service>.onrender.com/api/health`
+6. **Flutterwave (if using pricing checkout):** `FLUTTERWAVE_SECRET_KEY`, `FLUTTERWAVE_WEBHOOK_HASH`, `PUBLIC_WEB_URL=https://your-frontend-domain`.
+7. Smoke-test: `GET https://<your-service>.onrender.com/api/health`

@@ -322,13 +322,32 @@ export class AuthService {
   async getSubscriptionStatus(user: JwtAccessPayload): Promise<{
     subscribed: boolean;
     role: string;
+    expiresAt: string | null;
+    daysRemaining: number | null;
+    expiringSoon: boolean;
+    reason: string;
   }> {
     if (user.role !== UserRole.PROPERTY_MANAGER) {
-      return { subscribed: true, role: user.role };
+      return {
+        subscribed: true,
+        role: user.role,
+        expiresAt: null,
+        daysRemaining: null,
+        expiringSoon: false,
+        reason: 'not_applicable',
+      };
     }
-    const subscribed =
-      await this.managerSubscription.hasSuccessfulCheckoutForEmail(user.email);
-    return { subscribed, role: user.role };
+    const state = await this.managerSubscription.getSubscriptionStateForEmail(
+      user.email,
+    );
+    return {
+      subscribed: state.active,
+      role: user.role,
+      expiresAt: state.expiresAt ? state.expiresAt.toISOString() : null,
+      daysRemaining: state.daysRemaining,
+      expiringSoon: state.expiringSoon,
+      reason: state.reason,
+    };
   }
 
   async resendEmailOtp(dto: ResendEmailOtpDto): Promise<{ sent: true; email: string }> {
